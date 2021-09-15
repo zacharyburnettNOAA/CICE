@@ -60,7 +60,7 @@
         c180 = 180.0_dbl_kind, &
         c360 = 360.0_dbl_kind, &
         c365 = 365.0_dbl_kind, &
-        c400 = 400.0_dbl_kind, &
+	c400 = 400.0_dbl_kind, &
         c1000= 1000.0_dbl_kind, &
         c3600= 3600.0_dbl_kind, &
         p001 = 0.001_dbl_kind, &
@@ -71,7 +71,6 @@
         p15  = 0.15_dbl_kind, &
         p2   = 0.2_dbl_kind, &
         p25  = 0.25_dbl_kind, &
-        p3   = 0.3_dbl_kind, &
         p4   = 0.4_dbl_kind, &
         p5   = 0.5_dbl_kind, &
         p6   = 0.6_dbl_kind, &

@@ -1,6 +1,3 @@
-#ifdef ncdf
-#define USE_NETCDF
-#endif
 !=======================================================================
 
 ! Spatial grids, masks, and boundary conditions
@@ -18,38 +15,32 @@
       module ice_grid
 
       use ice_kinds_mod
-      use ice_broadcast, only: broadcast_scalar, broadcast_array
-      use ice_boundary, only: ice_HaloUpdate, ice_HaloExtrapolate, &
-          primary_grid_lengths_global_ext
+      use ice_boundary, only: ice_HaloUpdate, ice_HaloExtrapolate
       use ice_communicate, only: my_task, master_task
       use ice_blocks, only: block, get_block, nx_block, ny_block, nghost
       use ice_domain_size, only: nx_global, ny_global, max_blocks
       use ice_domain, only: blocks_ice, nblocks, halo_info, distrb_info, &
           ew_boundary_type, ns_boundary_type, init_domain_distribution
-      use ice_fileunits, only: nu_diag, nu_grid, nu_kmt, &
-          get_fileunit, release_fileunit, flush_fileunit
+      use ice_fileunits, only: nu_diag, nu_grid, nu_kmt
       use ice_gather_scatter, only: gather_global, scatter_global
       use ice_read_write, only: ice_read, ice_read_nc, ice_read_global, &
           ice_read_global_nc, ice_open, ice_open_nc, ice_close_nc
       use ice_timers, only: timer_bound, ice_timer_start, ice_timer_stop
       use ice_exit, only: abort_ice
-      use ice_global_reductions, only: global_minval, global_maxval
       use icepack_intfc, only: icepack_warnings_flush, icepack_warnings_aborted
-      use icepack_intfc, only: icepack_query_parameters, icepack_init_parameters
+      use icepack_intfc, only: icepack_query_parameters
 
       implicit none
       private
       public :: init_grid1, init_grid2, &
                 t2ugrid_vector, u2tgrid_vector, &
-                to_ugrid, to_tgrid, alloc_grid, makemask
+                to_ugrid, to_tgrid, alloc_grid
 
       character (len=char_len_long), public :: &
          grid_format  , & ! file format ('bin'=binary or 'nc'=netcdf)
          gridcpl_file , & !  input file for POP coupling grid info
          grid_file    , & !  input file for POP grid info
          kmt_file     , & !  input file for POP grid info
-         bathymetry_file, & !  input bathymetry for seabed stress
-         bathymetry_format, & ! bathymetry file format (default or pop)
          grid_spacing , & !  default of 30.e3m or set by user in namelist 
          grid_type        !  current options are rectangular (default),
                           !  displaced_pole, tripole, regional
@@ -78,22 +69,16 @@
          ocn_gridcell_frac   ! only relevant for lat-lon grids
                              ! gridcell value of [1 - (land fraction)] (T-cell)
 
-      real (kind=dbl_kind), dimension (:,:), allocatable, public :: &
-         G_HTE  , & ! length of eastern edge of T-cell (global ext.)
-         G_HTN      ! length of northern edge of T-cell (global ext.)
-
       real (kind=dbl_kind), dimension (:,:,:), allocatable, public :: &
-         cyp    , & ! 1.5*HTE(i,j)-0.5*HTW(i,j) = 1.5*HTE(i,j)-0.5*HTE(i-1,j) 
-         cxp    , & ! 1.5*HTN(i,j)-0.5*HTS(i,j) = 1.5*HTN(i,j)-0.5*HTN(i,j-1)
-         cym    , & ! 0.5*HTE(i,j)-1.5*HTW(i,j) = 0.5*HTE(i,j)-1.5*HTE(i-1,j) 
-         cxm    , & ! 0.5*HTN(i,j)-1.5*HTS(i,j) = 0.5*HTN(i,j)-1.5*HTN(i,j-1) 
-         dxhy   , & ! 0.5*(HTE(i,j) - HTW(i,j)) = 0.5*(HTE(i,j) - HTE(i-1,j))
-         dyhx       ! 0.5*(HTN(i,j) - HTS(i,j)) = 0.5*(HTN(i,j) - HTN(i,j-1)) 
-
-      ! grid dimensions for rectangular grid
+         cyp    , & ! 1.5*HTE - 0.5*HTE
+         cxp    , & ! 1.5*HTN - 0.5*HTN
+         cym    , & ! 0.5*HTE - 1.5*HTE
+         cxm    , & ! 0.5*HTN - 1.5*HTN
+         dxhy   , & ! 0.5*(HTE - HTE)
+         dyhx       ! 0.5*(HTN - HTN)
       real (kind=dbl_kind), public ::  &
-         dxrect, & !  user_specified spacing (cm) in x-direction (uniform HTN)
-         dyrect    !  user_specified spacing (cm) in y-direction (uniform HTE)
+         dxrect, & !  user_specified spacing (m) in x-direction
+         dyrect    !  user_specified spacing (m) in y-direction
 
       ! Corners of grid boxes for history output
       real (kind=dbl_kind), dimension (:,:,:,:), allocatable, public :: &
@@ -129,10 +114,6 @@
          uvm    , & ! land/boundary mask, velocity (U-cell)
          kmt        ! ocean topography mask for bathymetry (T-cell)
 
-      logical (kind=log_kind), public :: &
-         use_bathymetry, & ! flag for reading in bathymetry_file
-         pgl_global_ext    ! flag for init primary grid lengths (global ext.)
-
       logical (kind=log_kind), &
          dimension (:,:,:), allocatable, public :: &
          tmask  , & ! land/boundary mask, thickness (T-cell)
@@ -140,12 +121,15 @@
          lmask_n, & ! northern hemisphere mask
          lmask_s    ! southern hemisphere mask
 
+      ! grid dimensions for rectangular grid
+!      real (kind=dbl_kind), public ::  &
+!         dxrect = 30.e5_dbl_kind   ,&! uniform HTN (cm)
+!         dyrect = 30.e5_dbl_kind     ! uniform HTE (cm)
+!         dxrect = 16.e5_dbl_kind   ,&! uniform HTN (cm)
+!         dyrect = 16.e5_dbl_kind     ! uniform HTE (cm)
+
       real (kind=dbl_kind), dimension (:,:,:), allocatable, public :: &
          rndex_global       ! global index for local subdomain (dbl)
-
-      logical (kind=log_kind), private :: &
-         l_readCenter ! If anglet exist in grid file read it otherwise calculate it
-
 
 !=======================================================================
 
@@ -158,8 +142,6 @@
       subroutine alloc_grid
 
       integer (int_kind) :: ierr
-
-      character(len=*), parameter :: subname = '(alloc_grid)'
 
       allocate( &
          dxt      (nx_block,ny_block,max_blocks), & ! width of T-cell through the middle (m)
@@ -183,12 +165,12 @@
          ANGLET   (nx_block,ny_block,max_blocks), & ! ANGLE converted to T-cells
          bathymetry(nx_block,ny_block,max_blocks),& ! ocean depth, for grounding keels and bergs (m)
          ocn_gridcell_frac(nx_block,ny_block,max_blocks),& ! only relevant for lat-lon grids
-         cyp      (nx_block,ny_block,max_blocks), & ! 1.5*HTE - 0.5*HTW
-         cxp      (nx_block,ny_block,max_blocks), & ! 1.5*HTN - 0.5*HTS
-         cym      (nx_block,ny_block,max_blocks), & ! 0.5*HTE - 1.5*HTW
-         cxm      (nx_block,ny_block,max_blocks), & ! 0.5*HTN - 1.5*HTS
-         dxhy     (nx_block,ny_block,max_blocks), & ! 0.5*(HTE - HTW)
-         dyhx     (nx_block,ny_block,max_blocks), & ! 0.5*(HTN - HTS)
+         cyp      (nx_block,ny_block,max_blocks), & ! 1.5*HTE - 0.5*HTE
+         cxp      (nx_block,ny_block,max_blocks), & ! 1.5*HTN - 0.5*HTN
+         cym      (nx_block,ny_block,max_blocks), & ! 0.5*HTE - 1.5*HTE
+         cxm      (nx_block,ny_block,max_blocks), & ! 0.5*HTN - 1.5*HTN
+         dxhy     (nx_block,ny_block,max_blocks), & ! 0.5*(HTE - HTE)
+         dyhx     (nx_block,ny_block,max_blocks), & ! 0.5*(HTN - HTN)
          xav      (nx_block,ny_block,max_blocks), & ! mean T-cell value of x
          yav      (nx_block,ny_block,max_blocks), & ! mean T-cell value of y
          xxav     (nx_block,ny_block,max_blocks), & ! mean T-cell value of xx
@@ -211,15 +193,7 @@
          mse  (2,2,nx_block,ny_block,max_blocks), &
          msw  (2,2,nx_block,ny_block,max_blocks), &
          stat=ierr)
-      if (ierr/=0) call abort_ice(subname//'ERROR: Out of memory')
-
-      if (pgl_global_ext) then
-         allocate( &
-            G_HTE(nx_global+2*nghost, ny_global+2*nghost), & ! length of eastern edge of T-cell (global ext.)
-            G_HTN(nx_global+2*nghost, ny_global+2*nghost), & ! length of northern edge of T-cell (global ext.)
-            stat=ierr)
-         if (ierr/=0) call abort_ice(subname//'ERROR: Out of memory')
-      endif
+      if (ierr/=0) call abort_ice('(alloc_grid): Out of memory')
 
       end subroutine alloc_grid
 
@@ -262,16 +236,6 @@
 
       allocate(work_g1(nx_global,ny_global))
       allocate(work_g2(nx_global,ny_global))
-
-      ! check tripole flags here
-      ! can't check in init_data because ns_boundary_type is not yet read
-      ! can't check in init_domain_blocks because grid_type is not accessible due to circular logic
-
-      if (grid_type == 'tripole' .and. ns_boundary_type /= 'tripole' .and. &
-          ns_boundary_type /= 'tripoleT') then
-         call abort_ice(subname//'ERROR: grid_type tripole needs tripole ns_boundary_type', &
-                        file=__FILE__, line=__LINE__)
-      endif
 
       if (trim(grid_type) == 'displaced_pole' .or. &
           trim(grid_type) == 'tripole' .or. &
@@ -375,7 +339,7 @@
 
       type (block) :: &
          this_block           ! block information for current block
-
+      
       character(len=*), parameter :: subname = '(init_grid2)'
 
       !-----------------------------------------------------------------
@@ -410,9 +374,11 @@
       ! T-grid cell and U-grid cell quantities
       !-----------------------------------------------------------------
 
+!     tarea(:,:,:) = c0
+
       !$OMP PARALLEL DO PRIVATE(iblk,i,j,ilo,ihi,jlo,jhi,this_block)
       do iblk = 1, nblocks
-         this_block = get_block(blocks_ice(iblk),iblk)
+         this_block = get_block(blocks_ice(iblk),iblk)         
          ilo = this_block%ilo
          ihi = this_block%ihi
          jlo = this_block%jlo
@@ -502,15 +468,16 @@
       !-----------------------------------------------------------------
       ! Compute ANGLE on T-grid
       !-----------------------------------------------------------------
+      ANGLET = c0
+      
       if (trim(grid_type) == 'cpom_grid') then
          ANGLET(:,:,:) = ANGLE(:,:,:)
-      else if (.not. (l_readCenter)) then
-          ANGLET = c0
+      else
 
       !$OMP PARALLEL DO PRIVATE(iblk,i,j,ilo,ihi,jlo,jhi,this_block, &
       !$OMP                     angle_0,angle_w,angle_s,angle_sw)
       do iblk = 1, nblocks
-         this_block = get_block(blocks_ice(iblk),iblk)
+         this_block = get_block(blocks_ice(iblk),iblk)         
          ilo = this_block%ilo
          ihi = this_block%ihi
          jlo = this_block%jlo
@@ -522,21 +489,25 @@
             angle_w  = ANGLE(i-1,j  ,iblk) !   |    |
             angle_s  = ANGLE(i,  j-1,iblk) !   |    |
             angle_sw = ANGLE(i-1,j-1,iblk) !   sw---s
-            ANGLET(i,j,iblk) = atan2(p25*(sin(angle_0)+ &
-                                          sin(angle_w)+ &
-                                          sin(angle_s)+ &
-                                          sin(angle_sw)),&
-                                     p25*(cos(angle_0)+ &
-                                          cos(angle_w)+ &
-                                          cos(angle_s)+ &
-                                          cos(angle_sw)))
+
+            if ( angle_0 < c0 ) then
+               if ( abs(angle_w - angle_0) > pi) &
+                        angle_w = angle_w  - pi2
+               if ( abs(angle_s - angle_0) > pi) &
+                        angle_s = angle_s  - pi2
+               if ( abs(angle_sw - angle_0) > pi) &
+                        angle_sw = angle_sw - pi2
+            endif
+
+            ANGLET(i,j,iblk) = angle_0 * p25 + angle_w * p25 &
+                             + angle_s * p25 + angle_sw* p25
          enddo
          enddo
       enddo
       !$OMP END PARALLEL DO
       endif ! cpom_grid
-      if (trim(grid_type) == 'regional' .and. &
-          (.not. (l_readCenter))) then
+
+      if (trim(grid_type) == 'regional') then
          ! for W boundary extrapolate from interior
          !$OMP PARALLEL DO PRIVATE(iblk,i,j,ilo,ihi,jlo,jhi,this_block)
          do iblk = 1, nblocks
@@ -563,21 +534,15 @@
       call ice_timer_stop(timer_bound)
 
       call makemask          ! velocity mask, hemisphere masks
-      if (.not. (l_readCenter)) then
-         call Tlatlon           ! get lat, lon on the T grid
-      endif
+
+      call Tlatlon           ! get lat, lon on the T grid
+
       !-----------------------------------------------------------------
       ! bathymetry
       !-----------------------------------------------------------------
 
-      if (trim(bathymetry_format) == 'default') then
-         call get_bathymetry
-      elseif (trim(bathymetry_format) == 'pop') then
-         call get_bathymetry_popfile
-      else
-         call abort_ice(subname//'ERROR: bathymetry_format value must be default or pop', &
-            file=__FILE__, line=__LINE__)
-      endif
+!      call get_bathymetry
+      call get_bathymetry_wak
 
       !----------------------------------------------------------------
       ! Corner coordinates for CF compliant history files
@@ -666,7 +631,7 @@
       kmt(:,:,:) = c0
       !$OMP PARALLEL DO PRIVATE(iblk,i,j,ilo,ihi,jlo,jhi,this_block)
       do iblk = 1, nblocks
-         this_block = get_block(blocks_ice(iblk),iblk)
+         this_block = get_block(blocks_ice(iblk),iblk)         
          ilo = this_block%ilo
          ihi = this_block%ihi
          jlo = this_block%jlo
@@ -745,25 +710,23 @@
 
       subroutine popgrid_nc
 
+#ifdef ncdf
       use ice_blocks, only: nx_block, ny_block
       use ice_constants, only: c0, c1, &
           field_loc_center, field_loc_NEcorner, &
           field_type_scalar, field_type_angle
       use ice_domain_size, only: max_blocks
-#ifdef USE_NETCDF
-      use netcdf
-#endif
 
       integer (kind=int_kind) :: &
          i, j, iblk, &
          ilo,ihi,jlo,jhi, &     ! beginning and end of physical domain
-         fid_grid, &            ! file id for netCDF grid file
-         fid_kmt                ! file id for netCDF kmt file
+	 fid_grid, &		! file id for netCDF grid file
+	 fid_kmt		! file id for netCDF kmt file
 
       logical (kind=log_kind) :: diag
 
       character (char_len) :: &
-         fieldname              ! field name in netCDF file
+         fieldname		! field name in netCDF file
 
       real (kind=dbl_kind) :: &
          pi
@@ -776,16 +739,9 @@
 
       type (block) :: &
          this_block           ! block information for current block
-      
-      integer(kind=int_kind) :: &
-         varid
-      integer (kind=int_kind) :: &
-         status                ! status flag
-
 
       character(len=*), parameter :: subname = '(popgrid_nc)'
 
-#ifdef USE_NETCDF
       call icepack_query_parameters(pi_out=pi)
       call icepack_warnings_flush(nu_diag)
       if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
@@ -795,7 +751,7 @@
       call ice_open_nc(kmt_file,fid_kmt)
 
       diag = .true.       ! write diagnostic info
-      l_readCenter = .false.
+
       !-----------------------------------------------------------------
       ! topography
       !-----------------------------------------------------------------
@@ -809,7 +765,7 @@
       kmt(:,:,:) = c0
       !$OMP PARALLEL DO PRIVATE(iblk,i,j,ilo,ihi,jlo,jhi,this_block)
       do iblk = 1, nblocks
-         this_block = get_block(blocks_ice(iblk),iblk)
+         this_block = get_block(blocks_ice(iblk),iblk)         
          ilo = this_block%ilo
          ihi = this_block%ihi
          jlo = this_block%jlo
@@ -839,7 +795,7 @@
                                ew_boundary_type, ns_boundary_type)
 
       fieldname='ulon'
-      call ice_read_global_nc(fid_grid,1,fieldname,work_g1,diag) ! ULON
+      call ice_read_global_nc(fid_grid,2,fieldname,work_g1,diag) ! ULON
       call gridbox_verts(work_g1,lont_bounds)       
       call scatter_global(ULON, work_g1, master_task, distrb_info, &
                           field_loc_NEcorner, field_type_scalar)
@@ -847,40 +803,14 @@
                                ew_boundary_type, ns_boundary_type)
 
       fieldname='angle'
-      call ice_read_global_nc(fid_grid,1,fieldname,work_g1,diag) ! ANGLE
+      call ice_read_global_nc(fid_grid,7,fieldname,work_g1,diag) ! ANGLE    
       call scatter_global(ANGLE, work_g1, master_task, distrb_info, &
                           field_loc_NEcorner, field_type_angle)
+
       ! fix ANGLE: roundoff error due to single precision
       where (ANGLE >  pi) ANGLE =  pi
       where (ANGLE < -pi) ANGLE = -pi
 
-      ! if grid file includes anglet then read instead
-      fieldname='anglet'
-      if (my_task == master_task) then
-         status = nf90_inq_varid(fid_grid, trim(fieldname) , varid)
-         if (status /= nf90_noerr) then
-            write(nu_diag,*) subname//' CICE will calculate angleT, TLON and TLAT'
-         else
-            write(nu_diag,*) subname//' angleT, TLON and TLAT is read from grid file'
-            l_readCenter = .true.
-         endif
-      endif
-      call broadcast_scalar(l_readCenter,master_task)
-      if (l_readCenter) then
-         call ice_read_global_nc(fid_grid,1,fieldname,work_g1,diag) 
-         call scatter_global(ANGLET, work_g1, master_task, distrb_info, &
-                             field_loc_center, field_type_angle)
-         where (ANGLET >  pi) ANGLET =  pi
-         where (ANGLET < -pi) ANGLET = -pi
-         fieldname="tlon"
-         call ice_read_global_nc(fid_grid,1,fieldname,work_g1,diag)
-         call scatter_global(TLON, work_g1, master_task, distrb_info, &
-                             field_loc_center, field_type_scalar)
-         fieldname="tlat"
-         call ice_read_global_nc(fid_grid,1,fieldname,work_g1,diag)
-         call scatter_global(TLAT, work_g1, master_task, distrb_info, &
-                             field_loc_center, field_type_scalar)
-      endif
       !-----------------------------------------------------------------
       ! cell dimensions
       ! calculate derived quantities from global arrays to preserve 
@@ -888,10 +818,11 @@
       !-----------------------------------------------------------------
 
       fieldname='htn'
-      call ice_read_global_nc(fid_grid,1,fieldname,work_g1,diag) ! HTN
+      call ice_read_global_nc(fid_grid,3,fieldname,work_g1,diag) ! HTN
       call primary_grid_lengths_HTN(work_g1)                  ! dxu, dxt
+
       fieldname='hte'
-      call ice_read_global_nc(fid_grid,1,fieldname,work_g1,diag) ! HTE
+      call ice_read_global_nc(fid_grid,4,fieldname,work_g1,diag) ! HTE
       call primary_grid_lengths_HTE(work_g1)                  ! dyu, dyt
 
       deallocate(work_g1)
@@ -900,11 +831,8 @@
          call ice_close_nc(fid_grid)
          call ice_close_nc(fid_kmt)
       endif
-#else
-      call abort_ice(subname//'ERROR: USE_NETCDF cpp not defined', &
-          file=__FILE__, line=__LINE__)
-#endif
 
+#endif
       end subroutine popgrid_nc
 
 #ifdef CESMCOUPLED
@@ -917,14 +845,13 @@
 
       subroutine latlongrid
 
+#ifdef ncdf
 !     use ice_boundary
       use ice_domain_size
       use ice_scam, only : scmlat, scmlon, single_column
       use ice_constants, only: c0, c1, p5, p25, &
           field_loc_center, field_type_scalar, radius
-#ifdef USE_NETCDF
       use netcdf
-#endif
 
       integer (kind=int_kind) :: &
          i, j, iblk    
@@ -966,7 +893,6 @@
 
       character(len=*), parameter :: subname = '(lonlatgrid)'
 
-#ifdef USE_NETCDF
       !-----------------------------------------------------------------
       ! - kmt file is actually clm fractional land file
       ! - Determine consistency of dimensions
@@ -1128,7 +1054,7 @@
 
      !$OMP PARALLEL DO PRIVATE(iblk,this_block,ilo,ihi,jlo,jhi,i,j)
       do iblk = 1, nblocks
-         this_block = get_block(blocks_ice(iblk),iblk)
+         this_block = get_block(blocks_ice(iblk),iblk)         
          ilo = this_block%ilo
          ihi = this_block%ihi
          jlo = this_block%jlo
@@ -1179,13 +1105,11 @@
       !$OMP END PARALLEL DO
 
       call makemask
-#else
-      call abort_ice(subname//'ERROR: USE_NETCDF cpp not defined', &
-          file=__FILE__, line=__LINE__)
 #endif
 
       end subroutine latlongrid
 #endif
+
 !=======================================================================
 
 ! Regular rectangular grid and mask
@@ -1221,9 +1145,15 @@
       if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
          file=__FILE__, line=__LINE__)
 
-      hm (:,:,:) = c0
-      kmt(:,:,:) = c0
-      angle(:,:,:) = c0   ! "square with the world"
+      !$OMP PARALLEL DO PRIVATE(iblk,i,j)
+      do iblk = 1, nblocks
+         do j = 1, ny_block
+         do i = 1, nx_block
+            ANGLE(i,j,iblk) = c0              ! "square with the world"
+         enddo
+         enddo
+      enddo
+      !$OMP END PARALLEL DO
 
       allocate(work_g1(nx_global,ny_global))
 
@@ -1413,7 +1343,7 @@
       kmt(:,:,:) = c0
       !$OMP PARALLEL DO PRIVATE(iblk,i,j,ilo,ihi,jlo,jhi,this_block)
       do iblk = 1, nblocks
-         this_block = get_block(blocks_ice(iblk),iblk)
+         this_block = get_block(blocks_ice(iblk),iblk)         
          ilo = this_block%ilo
          ihi = this_block%ihi
          jlo = this_block%jlo
@@ -1515,10 +1445,6 @@
       enddo
       enddo
       endif
-      if (pgl_global_ext) then
-         call primary_grid_lengths_global_ext( &
-            G_HTN, work_g, ew_boundary_type, ns_boundary_type)
-      endif
       call scatter_global(HTN, work_g, master_task, distrb_info, &
                           field_loc_Nface, field_type_scalar)
       call scatter_global(dxu, work_g2, master_task, distrb_info, &
@@ -1593,10 +1519,6 @@
             enddo
          endif
       endif
-      if (pgl_global_ext) then
-         call primary_grid_lengths_global_ext( &
-            G_HTE, work_g, ew_boundary_type, ns_boundary_type)
-      endif
       call scatter_global(HTE, work_g, master_task, distrb_info, &
                           field_loc_Eface, field_type_scalar)
       call scatter_global(dyu, work_g2, master_task, distrb_info, &
@@ -1661,10 +1583,11 @@
       !-----------------------------------------------------------------
 
       bm = c0
+!     uvm = c0
 
       !$OMP PARALLEL DO PRIVATE(iblk,i,j,ilo,ihi,jlo,jhi,this_block)
       do iblk = 1, nblocks
-         this_block = get_block(blocks_ice(iblk),iblk)
+         this_block = get_block(blocks_ice(iblk),iblk)         
          ilo = this_block%ilo
          ihi = this_block%ihi
          jlo = this_block%jlo
@@ -1689,17 +1612,10 @@
 
       !$OMP PARALLEL DO PRIVATE(iblk,i,j,ilo,ihi,jlo,jhi,this_block)
       do iblk = 1, nblocks
-         this_block = get_block(blocks_ice(iblk),iblk)
-         ilo = this_block%ilo
-         ihi = this_block%ihi
-         jlo = this_block%jlo
-         jhi = this_block%jhi
-
-         ! needs to cover halo (no halo update for logicals)
-         tmask(:,:,iblk) = .false.
-         umask(:,:,iblk) = .false.
-         do j = jlo-nghost, jhi+nghost
-         do i = ilo-nghost, ihi+nghost
+         do j = 1, ny_block
+         do i = 1, nx_block
+            tmask(i,j,iblk) = .false.
+            umask(i,j,iblk) = .false.
             if ( hm(i,j,iblk) > p5) tmask(i,j,iblk) = .true.
             if (uvm(i,j,iblk) > p5) umask(i,j,iblk) = .true.
          enddo
@@ -1715,14 +1631,11 @@
          tarean(:,:,iblk) = c0
          tareas(:,:,iblk) = c0
 
-         do j = jlo,jhi
-         do i = ilo,ihi
+         do j = 1, ny_block
+         do i = 1, nx_block
 
-            if (ULAT(i,j,iblk) >= -puny) then
-               lmask_n(i,j,iblk) = .true. ! N. Hem.
-            else
-               lmask_s(i,j,iblk) = .true. ! S. Hem.
-            endif
+            if (ULAT(i,j,iblk) >= -puny) lmask_n(i,j,iblk) = .true. ! N. Hem.
+            if (ULAT(i,j,iblk) <  -puny) lmask_s(i,j,iblk) = .true. ! S. Hem.
 
             ! N hemisphere area mask (m^2)
             if (lmask_n(i,j,iblk)) tarean(i,j,iblk) = tarea(i,j,iblk) &
@@ -1751,6 +1664,7 @@
 
       use ice_constants, only: c0, c1, c2, c4, &
           field_loc_center, field_type_scalar
+      use ice_global_reductions, only: global_minval, global_maxval
 
       integer (kind=int_kind) :: &
            i, j, iblk       , & ! horizontal indices
@@ -1777,7 +1691,7 @@
       !$OMP                     x1,y1,z1,x2,y2,z2,x3,y3,z3,x4,y4,z4, &
       !$OMP                     tx,ty,tz,da)
       do iblk = 1, nblocks
-         this_block = get_block(blocks_ice(iblk),iblk)
+         this_block = get_block(blocks_ice(iblk),iblk)         
          ilo = this_block%ilo
          ihi = this_block%ihi
          jlo = this_block%jlo
@@ -1824,6 +1738,7 @@
          enddo                  ! j         
       enddo                     ! iblk
       !$OMP END PARALLEL DO
+
       if (trim(grid_type) == 'regional') then
          ! for W boundary extrapolate from interior
          !$OMP PARALLEL DO PRIVATE(iblk,i,j,ilo,ihi,jlo,jhi,this_block)
@@ -1894,7 +1809,8 @@
       use ice_constants, only: field_loc_center, field_type_vector
       use ice_domain_size, only: max_blocks
 
-      real (kind=dbl_kind), dimension(nx_block,ny_block,max_blocks), intent(inout) :: & 
+      real (kind=dbl_kind), dimension(nx_block,ny_block,max_blocks), &
+           intent(inout) :: & 
            work
 
       ! local variables
@@ -1949,7 +1865,7 @@
 
       !$OMP PARALLEL DO PRIVATE(iblk,i,j,ilo,ihi,jlo,jhi,this_block)
       do iblk = 1, nblocks
-         this_block = get_block(blocks_ice(iblk),iblk)
+         this_block = get_block(blocks_ice(iblk),iblk)         
          ilo = this_block%ilo
          ihi = this_block%ihi
          jlo = this_block%jlo
@@ -1984,7 +1900,8 @@
       use ice_constants, only: field_loc_NEcorner, field_type_vector
       use ice_domain_size, only: max_blocks
 
-      real (kind=dbl_kind), dimension (nx_block,ny_block,max_blocks), intent(inout) :: &
+      real (kind=dbl_kind), dimension (nx_block,ny_block,max_blocks), &
+         intent(inout) :: &
          work
 
       ! local variables
@@ -2034,7 +1951,7 @@
 
       !$OMP PARALLEL DO PRIVATE(iblk,i,j,ilo,ihi,jlo,jhi,this_block)
       do iblk = 1, nblocks
-         this_block = get_block(blocks_ice(iblk),iblk)
+         this_block = get_block(blocks_ice(iblk),iblk)         
          ilo = this_block%ilo
          ihi = this_block%ihi
          jlo = this_block%jlo
@@ -2107,7 +2024,7 @@
 
       !$OMP PARALLEL DO PRIVATE(iblk,i,j,ilo,ihi,jlo,jhi,this_block)
       do iblk = 1, nblocks
-         this_block = get_block(blocks_ice(iblk),iblk)
+         this_block = get_block(blocks_ice(iblk),iblk)         
          ilo = this_block%ilo
          ihi = this_block%ihi
          jlo = this_block%jlo
@@ -2269,11 +2186,11 @@
           field_loc_NEcorner, field_type_scalar
       use ice_domain_size, only: max_blocks
 
-      real (kind=dbl_kind), dimension(:,:), intent(in) :: &
-          work_g
+      real (kind=dbl_kind), dimension(:,:), intent(in) :: work_g
 
-      real (kind=dbl_kind), dimension(4,nx_block,ny_block,max_blocks), intent(out) :: &
-          vbounds
+      real (kind=dbl_kind), &
+          dimension(4,nx_block,ny_block,max_blocks), &
+          intent(out) :: vbounds
 
       integer (kind=int_kind) :: &
           i,j                 ! index counters
@@ -2377,9 +2294,9 @@
       end subroutine gridbox_verts
 
 !=======================================================================
-! ocean bathymetry for grounded sea ice (seabed stress) or icebergs
+! ocean bathymetry for grounded sea ice (basalstress) or icebergs
 ! currently hardwired for 40 levels (gx3, gx1 grids)
-! should be read from a file instead (see subroutine read_seabedstress_bathy)
+! should be read from a file instead (see subroutine read_basalstress_bathy)
 
       subroutine get_bathymetry
 
@@ -2394,9 +2311,6 @@
 
       real (kind=dbl_kind) :: &
          puny
-
-      logical (kind=log_kind) :: &
-         calc_dragio
 
       real (kind=dbl_kind), dimension(nlevel), parameter :: &
          thick  = (/ &                        ! ocean layer thickness, m
@@ -2417,162 +2331,73 @@
 
       character(len=*), parameter :: subname = '(get_bathymetry)'
 
-      call icepack_query_parameters(puny_out=puny, calc_dragio_out=calc_dragio)
+      call icepack_query_parameters(puny_out=puny)
       call icepack_warnings_flush(nu_diag)
       if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
          file=__FILE__, line=__LINE__)
-
-      if (use_bathymetry) then
-
-         call read_seabedstress_bathy
-
-      else
-
-         ! convert to total depth
-         depth(1) = thick(1)
-         do k = 2, nlevel
-            depth(k) = depth(k-1) + thick(k)
-         enddo
-
-         do iblk = 1, nblocks
-            do j = 1, ny_block
-            do i = 1, nx_block
-               k = min(nint(kmt(i,j,iblk)),nlevel)
-               if (k > nlevel) call abort_ice(subname//' kmt gt nlevel error')
-               if (k > 0) bathymetry(i,j,iblk) = depth(k)
-            enddo
-            enddo
-         enddo
-
-         ! For consistency, set thickness_ocn_layer1 in Icepack if 'calc_dragio' is active
-         if (calc_dragio) then
-            call icepack_init_parameters(thickness_ocn_layer1_in=thick(1))
-            call icepack_warnings_flush(nu_diag)
-            if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
-               file=__FILE__, line=__LINE__)
-         endif
-
-      endif ! bathymetry_file
-
-      end subroutine get_bathymetry
-
-!=======================================================================
-! with use_bathymetry = false, vertical depth profile generated for max KMT
-! with use_bathymetry = true, expects to read in pop vert_grid file
-
-      subroutine get_bathymetry_popfile
-
-      integer (kind=int_kind) :: &
-         i, j, k, iblk      ! loop indices
-
-      integer (kind=int_kind) :: &
-         ntmp, nlevel   , & ! number of levels (max KMT)
-         k1             , & ! levels
-         ierr           , & ! error tag
-         fid                ! fid unit number
-
-      real (kind=dbl_kind), dimension(:),allocatable :: &
-         depth          , & ! total depth, m
-         thick              ! layer thickness, cm -> m
-
-      logical (kind=log_kind) :: &
-         calc_dragio
-
-      character(len=*), parameter :: subname = '(get_bathymetry_popfile)'
-
-      ntmp = maxval(nint(KMT))
-      nlevel = global_maxval(ntmp,distrb_info)
-
-      if (my_task==master_task) then
-         write(nu_diag,*) subname,' KMT max = ',nlevel
-      endif
-
-      allocate(depth(nlevel),thick(nlevel))
-      thick = -999999.
-      depth = -999999.
-
-      if (use_bathymetry) then
-
-         write (nu_diag,*) subname,' Bathymetry file = ', trim(bathymetry_file)
-         if (my_task == master_task) then
-            call get_fileunit(fid)
-            open(fid,file=bathymetry_file,form='formatted',iostat=ierr)
-            if (ierr/=0) call abort_ice(subname//' open error')
-            do k = 1,nlevel
-               read(fid,*,iostat=ierr) thick(k)
-               if (ierr/=0) call abort_ice(subname//' read error')
-            enddo
-            call release_fileunit(fid)
-         endif
-
-         call broadcast_array(thick,master_task)
-
-      else
-
-         ! create thickness profile
-         k1 = min(5,nlevel)
-         do k = 1,k1
-            thick(k) = max(10000._dbl_kind/float(nlevel),500._dbl_kind)
-         enddo
-         do k = k1+1,nlevel
-            thick(k) = min(thick(k-1)*1.2_dbl_kind,20000._dbl_kind)
-         enddo
-
-      endif
-
-      ! convert thick from cm to m
-      thick = thick / 100._dbl_kind
 
       ! convert to total depth
       depth(1) = thick(1)
       do k = 2, nlevel
          depth(k) = depth(k-1) + thick(k)
-         if (depth(k) < 0.) call abort_ice(subname//' negative depth error')
       enddo
 
-      if (my_task==master_task) then
-         do k = 1,nlevel
-           write(nu_diag,'(2a,i6,2f13.7)') subname,'   k, thick(m), depth(m) = ',k,thick(k),depth(k)
-         enddo
-      endif
-
-      bathymetry = 0._dbl_kind
       do iblk = 1, nblocks
          do j = 1, ny_block
          do i = 1, nx_block
-            k = nint(kmt(i,j,iblk))
-            if (k > nlevel) call abort_ice(subname//' kmt gt nlevel error')
-            if (k > 0) bathymetry(i,j,iblk) = depth(k)
+            k = kmt(i,j,iblk)
+            if (k > puny) bathymetry(i,j,iblk) = depth(k)
          enddo
          enddo
       enddo
 
-      ! For consistency, set thickness_ocn_layer1 in Icepack if 'calc_dragio' is active
-      call icepack_query_parameters(calc_dragio_out=calc_dragio)
-      if (calc_dragio) then
-         call icepack_init_parameters(thickness_ocn_layer1_in=thick(1))
-      endif
+      end subroutine get_bathymetry
+
+!=======================================================================
+
+      subroutine get_bathymetry_wak
+
+      integer (kind=int_kind) :: &
+         i, j, k, iblk      ! loop indices
+
+      integer (kind=int_kind) :: idepth
+
+      real (kind=dbl_kind) :: &
+         puny
+
+      character(len=*), parameter :: subname = '(get_bathymetry_wak)'
+
+      call icepack_query_parameters(puny_out=puny)
       call icepack_warnings_flush(nu_diag)
       if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
          file=__FILE__, line=__LINE__)
 
-      deallocate(depth,thick)
 
-      end subroutine get_bathymetry_popfile
+      do iblk = 1, nblocks
+         do j = 1, ny_block
+         do i = 1, nx_block
+            idepth = kmt(i,j,iblk)
+            if (idepth > puny) bathymetry(i,j,iblk) = real(idepth,dbl_kind)
+         enddo
+         enddo
+      enddo
+
+      end subroutine get_bathymetry_wak
 
 !=======================================================================
 
-! Read bathymetry data for seabed stress calculation (grounding scheme for 
+! Read bathymetry data for basal stress calculation (grounding scheme for 
 ! landfast ice) in CICE stand-alone mode. When CICE is in coupled mode 
 ! (e.g. CICE-NEMO), hwater should be uptated at each time level so that 
 ! it varies with ocean dynamics.
 !
 ! author: Fred Dupont, CMC
       
-      subroutine read_seabedstress_bathy
+      subroutine read_basalstress_bathy
 
       ! use module
       use ice_read_write
+      use ice_communicate, only: my_task, master_task
       use ice_constants, only: field_loc_center, field_type_scalar
 
       ! local variables
@@ -2580,24 +2405,31 @@
          fid_init        ! file id for netCDF init file
       
       character (char_len_long) :: &        ! input data file names
+         init_file, &
          fieldname
 
       logical (kind=log_kind) :: diag=.true.
 
-      character(len=*), parameter :: subname = '(read_seabedstress_bathy)'
+      character(len=*), parameter :: subname = '(read_basalstress_bathy)'
+
+      init_file='bathymetry.nc'
 
       if (my_task == master_task) then
+
           write (nu_diag,*) ' '
-          write (nu_diag,*) 'Bathymetry file: ', trim(bathymetry_file)
+          write (nu_diag,*) 'Initial ice file: ', trim(init_file)
+          write (*,*) 'Initial ice file: ', trim(init_file)
           call icepack_warnings_flush(nu_diag)
+
       endif
 
-      call ice_open_nc(bathymetry_file,fid_init)
+      call ice_open_nc(init_file,fid_init)
 
       fieldname='Bathymetry'
 
       if (my_task == master_task) then
          write(nu_diag,*) 'reading ',TRIM(fieldname)
+         write(*,*) 'reading ',TRIM(fieldname)
          call icepack_warnings_flush(nu_diag)
       endif
       call ice_read_nc(fid_init,1,fieldname,bathymetry,diag, &
@@ -2607,11 +2439,11 @@
       call ice_close_nc(fid_init)
 
       if (my_task == master_task) then
-         write(nu_diag,*) 'closing file ',TRIM(bathymetry_file)
+         write(nu_diag,*) 'closing file ',TRIM(init_file)
          call icepack_warnings_flush(nu_diag)
       endif
 
-      end subroutine read_seabedstress_bathy
+      end subroutine read_basalstress_bathy
       
 !=======================================================================
 

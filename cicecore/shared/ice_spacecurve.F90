@@ -13,14 +13,12 @@ module ice_spacecurve
 
 ! !USES:
    use ice_kinds_mod
-   use ice_blocks, only: debug_blocks
    use ice_communicate, only: my_task, master_task
    use ice_exit, only: abort_ice
    use ice_fileunits
    use icepack_intfc, only: icepack_warnings_flush, icepack_warnings_aborted
 
    implicit none
-   private
 
 ! !PUBLIC TYPES: 
 
@@ -32,36 +30,38 @@ module ice_spacecurve
 
 ! !PUBLIC MEMBER FUNCTIONS: 
 
-   public :: GenSpaceCurve
+   public :: GenSpaceCurve,     &
+	     IsLoadBalanced
 
    public :: Factor,            &
              IsFactorable,      &
              PrintFactor,       &
              ProdFactor,        &
-             PrintCurve,        &
              MatchFactor
 
 ! !PRIVATE MEMBER FUNCTIONS:
 
-   private :: map,              &
-              PeanoM,           &
-              Hilbert,          &
-              Cinco,            &
+   private :: map,    		&
+	      PeanoM, 		&
+	      Hilbert, 		&
+	      Cinco,  		&
               GenCurve
 
    private :: FirstFactor,      &
               FindandMark
 
    integer(int_kind), dimension(:,:), allocatable ::  &
-        dir,      &! direction to move along each level
+	dir,      &! direction to move along each level
         ordered    ! the ordering 
    integer(int_kind), dimension(:), allocatable ::  &
-        pos        ! position along each of the axes
+	pos        ! position along each of the axes
    
    integer(int_kind) ::  &
-        maxdim,   &! dimensionality of entire space
-        vcnt       ! visitation count
+	maxdim,	  &! dimensionality of entire space
+	vcnt       ! visitation count
 
+   logical           :: verbose=.FALSE. 
+   
    type (factor_t),  public :: fact  ! stores the factorization
 
 !EOP
@@ -80,7 +80,7 @@ contains
 ! !DESCRIPTION:
 !  This subroutine implements a Cinco space-filling curve.
 !  Cinco curves connect a Nb x Nb block of points where 
-!
+!  		
 !        Nb = 5^p 
 !
 ! !REVISION HISTORY:
@@ -91,12 +91,12 @@ contains
 ! !INPUT PARAMETERS 
 
    integer(int_kind), intent(in) ::  &
-        l,      & ! level of the space-filling curve 
+	l, 	& ! level of the space-filling curve 
         type,   & ! type of SFC curve
-        ma,     & ! Major axis [0,1]
-        md,     & ! direction of major axis [-1,1]
-        ja,     & ! joiner axis [0,1]
-        jd        ! direction of joiner axis [-1,1]
+	ma,     & ! Major axis [0,1]
+	md,  	& ! direction of major axis [-1,1]
+	ja,	& ! joiner axis [0,1]
+	jd	  ! direction of joiner axis [-1,1]
 
 ! !OUTPUT PARAMETERS
 
@@ -111,12 +111,14 @@ contains
 !-----------------------------------------------------------------------
 
    integer(int_kind) :: &
-        lma,            &! local major axis (next level)
-        lmd,            &! local major direction (next level)
-        lja,            &! local joiner axis (next level)
-        ljd,            &! local joiner direction (next level)
-        ltype,          &! type of SFC on next level 
-        ll               ! next level down 
+	lma,		&! local major axis (next level)
+	lmd,		&! local major direction (next level)
+	lja,		&! local joiner axis (next level)
+	ljd,		&! local joiner direction (next level)
+	ltype,          &! type of SFC on next level 
+        ll		 ! next level down 
+
+   logical     :: debug = .FALSE.
 
    character(len=*),parameter :: subname='(Cinco)'
 
@@ -134,12 +136,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,21) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,21) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'Cinco: After Position [0,0] ',pos
+        if(debug) print *,'Cinco: After Position [0,0] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -151,12 +153,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,22) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,22) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [1,0] ',pos
+        if(debug) print *,'After Position [1,0] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -168,12 +170,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,23) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,23) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [2,0] ',pos
+        if(debug) print *,'After Position [2,0] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -185,12 +187,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,24) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,24) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [2,1] ',pos
+        if(debug) print *,'After Position [2,1] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -202,12 +204,12 @@ contains
      ljd       = -md
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,25) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,25) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [2,2] ',pos
+        if(debug) print *,'After Position [2,2] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -219,12 +221,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,26) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,26) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [1,2] ',pos
+        if(debug) print *,'After Position [1,2] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -236,12 +238,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,27) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,27) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [1,1] ',pos
+        if(debug) print *,'After Position [1,1] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -253,12 +255,12 @@ contains
      ljd       = md
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,28) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,28) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [0,1] ',pos
+        if(debug) print *,'After Position [0,1] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -270,12 +272,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,29) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,29) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [0,2] ',pos
+        if(debug) print *,'After Position [0,2] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -287,12 +289,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,30) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,30) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [0,3] ',pos
+        if(debug) print *,'After Position [0,3] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -304,12 +306,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,31) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,31) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [0,4] ',pos
+        if(debug) print *,'After Position [0,4] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -321,12 +323,12 @@ contains
      ljd       = -md
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,32) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,32) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [1,4] ',pos
+        if(debug) print *,'After Position [1,4] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -338,12 +340,12 @@ contains
      ljd       = md
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,33) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,33) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [1,3] ',pos
+        if(debug) print *,'After Position [1,3] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -355,12 +357,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,34) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,34) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [2,3] ',pos
+        if(debug) print *,'After Position [2,3] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -372,12 +374,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,35) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,35) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [2,4] ',pos
+        if(debug) print *,'After Position [2,4] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -389,12 +391,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,36) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,36) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [3,4] ',pos
+        if(debug) print *,'After Position [3,4] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -406,12 +408,12 @@ contains
      ljd       = -md
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,37) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,37) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [4,4] ',pos
+        if(debug) print *,'After Position [4,4] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -423,12 +425,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,38) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,38) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [4,3] ',pos
+        if(debug) print *,'After Position [4,3] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -440,12 +442,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,39) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,39) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [3,3] ',pos
+        if(debug) print *,'After Position [3,3] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -457,12 +459,12 @@ contains
      ljd       = md
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,40) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,40) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [3,2] ',pos
+        if(debug) print *,'After Position [3,2] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -474,12 +476,12 @@ contains
      ljd       = -md
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,41) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,41) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [4,2] ',pos
+        if(debug) print *,'After Position [4,2] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -491,12 +493,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,42) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,42) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [4,1] ',pos
+        if(debug) print *,'After Position [4,1] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -508,12 +510,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,43) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,43) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [3,1] ',pos
+        if(debug) print *,'After Position [3,1] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -525,12 +527,12 @@ contains
      ljd       = md
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,44) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,44) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [3,0] ',pos
+        if(debug) print *,'After Position [3,0] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -542,12 +544,12 @@ contains
      ljd       = jd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,45) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,45) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'After Position [4,0] ',pos
+        if(debug) print *,'After Position [4,0] ',pos
      endif
 
  21   format('Call Cinco Pos [0,0] Level ',i1,' at (',i2,',',i2,')',4(i3))
@@ -630,6 +632,8 @@ contains
         ltype,          &! type of SFC on next level
         ll               ! next level down
 
+   logical     :: debug = .FALSE.
+
    character(len=*),parameter :: subname='(PeanoM)'
 
 !-----------------------------------------------------------------------
@@ -646,12 +650,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,21) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,21) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'PeanoM: After Position [0,0] ',pos
+        if(debug) print *,'PeanoM: After Position [0,0] ',pos
      endif
 
 
@@ -663,12 +667,12 @@ contains
      lja       = lma
      ljd       = lmd
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,22) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,22) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'PeanoM: After Position [0,1] ',pos
+        if(debug) print *,'PeanoM: After Position [0,1] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -679,12 +683,12 @@ contains
      lja       = lma
      ljd       = lmd
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,23) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,23) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'PeanoM: After Position [0,2] ',pos
+        if(debug) print *,'PeanoM: After Position [0,2] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -695,12 +699,12 @@ contains
      lja       = lma
      ljd       = lmd
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,24) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,24) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'PeanoM: After Position [1,2] ',pos
+        if(debug) print *,'PeanoM: After Position [1,2] ',pos
      endif
 
 
@@ -713,12 +717,12 @@ contains
      ljd        = -lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,25) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,25) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'PeanoM: After Position [2,2] ',pos
+        if(debug) print *,'PeanoM: After Position [2,2] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -730,12 +734,12 @@ contains
      ljd        = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,26) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,26) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'PeanoM: After Position [2,1] ',pos
+        if(debug) print *,'PeanoM: After Position [2,1] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -747,12 +751,12 @@ contains
      ljd        = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,27) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,27) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'PeanoM: After Position [1,1] ',pos
+        if(debug) print *,'PeanoM: After Position [1,1] ',pos
      endif
 
 
@@ -765,12 +769,12 @@ contains
      ljd        = -lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,28) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,28) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'PeanoM: After Position [1,0] ',pos
+        if(debug) print *,'PeanoM: After Position [1,0] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -782,12 +786,12 @@ contains
      ljd        = jd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,29) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,29) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'PeanoM: After Position [2,0] ',pos
+        if(debug) print *,'PeanoM: After Position [2,0] ',pos
      endif
 
  21   format('Call PeanoM Pos [0,0] Level ',i1,' at (',i2,',',i2,')',4(i3))
@@ -854,6 +858,8 @@ contains
         ltype,          &! type of SFC on next level
         ll               ! next level down
 
+   logical     :: debug = .FALSE.
+
    character(len=*),parameter :: subname='(Hilbert)'
 
 !-----------------------------------------------------------------------
@@ -869,12 +875,12 @@ contains
      ljd       = lmd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,21) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,21) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'Hilbert: After Position [0,0] ',pos
+        if(debug) print *,'Hilbert: After Position [0,0] ',pos
      endif
 
 
@@ -886,12 +892,12 @@ contains
      lja       = lma
      ljd       = lmd
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,22) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,22) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'Hilbert: After Position [0,1] ',pos
+        if(debug) print *,'Hilbert: After Position [0,1] ',pos
      endif
 
 
@@ -904,12 +910,12 @@ contains
      ljd        = -md
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,23) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,23) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'Hilbert: After Position [1,1] ',pos
+        if(debug) print *,'Hilbert: After Position [1,1] ',pos
      endif
 
      !--------------------------------------------------------------
@@ -921,12 +927,12 @@ contains
      ljd        = jd
 
      if(ll .gt. 1) then
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,24) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
+        if(debug) write(*,24) ll-1,pos(0),pos(1),lma,lmd,lja,ljd
         ierr  = GenCurve(ll-1,ltype,lma,lmd,lja,ljd)
-        if(debug_blocks .and. my_task==master_task) call PrintCurve(ordered)
+        if(debug) call PrintCurve(ordered)
      else
         ierr = IncrementCurve(lja,ljd)
-        if(debug_blocks .and. my_task==master_task) write(nu_diag,*) 'Hilbert: After Position [1,0] ',pos
+        if(debug) print *,'Hilbert: After Position [1,0] ',pos
      endif
 
  21   format('Call Hilbert Pos [0,0] Level ',i1,' at (',i2,',',i2,')',4(i3))
@@ -957,8 +963,8 @@ contains
 
 ! !INPUT PARAMETERS:
      integer(int_kind)  :: &
-        ja,     &! axis to increment
-        jd       ! direction along axis
+	ja, 	&! axis to increment
+	jd	 ! direction along axis
 
 ! !OUTPUT PARAMETERS:
      integer(int_kind) :: ierr ! error return code
@@ -969,7 +975,7 @@ contains
      ! mark the newly visited point
      !-----------------------------
      ordered(pos(0)+1,pos(1)+1) = vcnt
-
+	
      !------------------------------------
      ! increment curve and update position
      !------------------------------------
@@ -1042,7 +1048,6 @@ contains
    end function log2
 
 !***********************************************************************
-#ifdef UNDEPRECATE_IsLoadBalanced
 !BOP
 ! !IROUTINE: IsLoadBalanced
 ! !INTERFACE:
@@ -1059,12 +1064,12 @@ contains
 ! !INTPUT PARAMETERS:
 
    integer(int_kind), intent(in) ::  &
-        nelem,      &  ! number of blocks/elements to partition
-        npart          ! size of partition
+	nelem,		&  ! number of blocks/elements to partition
+	npart              ! size of partition
 
 ! !OUTPUT PARAMETERS:
    logical        :: IsLoadBalanced   ! .TRUE. if a perfectly load balanced 
-                                      ! partition is possible
+				      ! partition is possible
 !EOP
 !BOC
 !-----------------------------------------------------------------------
@@ -1072,7 +1077,7 @@ contains
 !  local variables
 !
 !-----------------------------------------------------------------------
-
+	
    integer(int_kind)   :: tmp1 ! temporary int
 
    character(len=*),parameter :: subname='(IsLoadBalanced)'
@@ -1080,17 +1085,17 @@ contains
 !-----------------------------------------------------------------------
    tmp1 = nelem/npart
 
-   if (npart*tmp1 == nelem ) then 
-      IsLoadBalanced=.TRUE.
+   if(npart*tmp1 == nelem ) then 
+	IsLoadBalanced=.TRUE.
    else
-      IsLoadBalanced=.FALSE.
+        IsLoadBalanced=.FALSE.
    endif
 
 !EOP
 !-----------------------------------------------------------------------
 
    end function IsLoadBalanced
-#endif
+
 !***********************************************************************
 !BOP
 ! !IROUTINE: GenCurve
@@ -1123,7 +1128,6 @@ contains
 !EOP
 !BOC
 
-   logical, save :: f2=.true., f3=.true., f5=.true.   ! first calls
    character(len=*),parameter :: subname='(GenCurve)'
 
 !-----------------------------------------------------------------------
@@ -1133,17 +1137,11 @@ contains
    !-------------------------------------------------
 
    if(type == 2) then
-      if (f2 .and. my_task == master_task) write(nu_diag,*) subname,' calling Hilbert (2)'
       ierr = Hilbert(l,type,ma,md,ja,jd)
-      f2 = .false.
    elseif ( type == 3) then
-      if (f3 .and. my_task == master_task) write(nu_diag,*) subname,' calling PeanoM (3)'
       ierr = PeanoM(l,type,ma,md,ja,jd)
-      f3 = .false.
    elseif ( type == 5) then 
-      if (f5 .and. my_task == master_task) write(nu_diag,*) subname,' calling Cinco (5)'
       ierr = Cinco(l,type,ma,md,ja,jd)
-      f5 = .false.
    endif
 
 !EOP
@@ -1212,7 +1210,7 @@ contains
       found = .false.
 
       val1 = FirstFactor(fac1)
-!JMD      write(nu_diag,*)'Matchfactor: found value: ',val1
+!JMD      print *,'Matchfactor: found value: ',val1
       found = FindandMark(fac2,val1,.true.)
       tmp = FindandMark(fac1,val1,found)
       if (found) then
@@ -1247,10 +1245,10 @@ contains
       integer (int_kind) :: i
       character(len=*),parameter :: subname='(PrintFactor)'
 
-      write(nu_diag,*) subname,' '
-      write(nu_diag,*) subname,'msg = ',trim(msg)
-      write(nu_diag,*) subname,(fac%factors(i),i=1,fac%numfact)
-      write(nu_diag,*) subname,(fac%used(i),i=1,fac%numfact)
+      write(*,*) subname,' '
+      write(*,*) subname,'msg = ',trim(msg)
+      write(*,*) subname,(fac%factors(i),i=1,fac%numfact)
+      write(*,*) subname,(fac%used(i),i=1,fac%numfact)
 
 
    end subroutine PrintFactor
@@ -1287,7 +1285,7 @@ contains
 !-----------------------------------------------------------------------
 
    integer(int_kind)   ::  &
-        tmp,tmp2,tmp3,tmp5   ! tempories for the factorization algorithm
+	tmp,tmp2,tmp3,tmp5   ! tempories for the factorization algorithm
    integer(int_kind)   :: i,n    ! loop tempories
    logical             :: found  ! logical temporary
    character(len=*),parameter :: subname='(Factor)'
@@ -1439,9 +1437,9 @@ contains
 !-----------------------------------------------------------------------
 
    integer(int_kind)  :: &
-        d,               & ! dimension of curve only 2D is supported
-        type,            & ! type of space-filling curve to start off
-        ierr               ! error return code
+	d, 		 & ! dimension of curve only 2D is supported
+	type,		 & ! type of space-filling curve to start off
+        ierr   		   ! error return code
    character(len=*),parameter :: subname='(map)'
 
    d = SIZE(pos)
@@ -1449,9 +1447,6 @@ contains
    pos=0
    maxdim=d
    vcnt=0
-
-   ! tcx, if l is 0, then fact has no factors, just return
-   if (l == 0) return
 
    type = fact%factors(l)
    ierr = GenCurve(l,type,0,1,0,1)
@@ -1489,121 +1484,121 @@ contains
 !
 !-----------------------------------------------------------------------
      integer(int_kind) ::  &
-        gridsize,          &! order of space-filling curve
-        i                   ! loop temporary
+        gridsize,	   &! order of space-filling curve
+        i		    ! loop temporary
      character(len=*),parameter :: subname='(PrintCurve)'
 
 !-----------------------------------------------------------------------
 
      gridsize = SIZE(Mesh,dim=1)
 
-     write(nu_diag,*) subname,":",gridsize
+     write(*,*) subname,":"
 
      if(gridsize == 2) then
-        write (nu_diag,*) "A Level 1 Hilbert Curve:"
-        write (nu_diag,*) "------------------------"
+        write (*,*) "A Level 1 Hilbert Curve:"
+        write (*,*) "------------------------"
         do i=1,gridsize
-           write(nu_diag,2) Mesh(1,i),Mesh(2,i)
+           write(*,2) Mesh(1,i),Mesh(2,i)
         enddo
      else if(gridsize == 3) then
-        write (nu_diag,*) "A Level 1 Peano Meandering Curve:"
-        write (nu_diag,*) "---------------------------------"
+        write (*,*) "A Level 1 Peano Meandering Curve:"
+        write (*,*) "---------------------------------"
         do i=1,gridsize
-           write(nu_diag,3) Mesh(1,i),Mesh(2,i),Mesh(3,i)
+           write(*,3) Mesh(1,i),Mesh(2,i),Mesh(3,i)
         enddo
      else if(gridsize == 4) then
-        write (nu_diag,*) "A Level 2 Hilbert Curve:"
-        write (nu_diag,*) "------------------------"
+        write (*,*) "A Level 2 Hilbert Curve:"
+        write (*,*) "------------------------"
         do i=1,gridsize
-           write(nu_diag,4) Mesh(1,i),Mesh(2,i),Mesh(3,i),Mesh(4,i)
+           write(*,4) Mesh(1,i),Mesh(2,i),Mesh(3,i),Mesh(4,i)
         enddo
      else if(gridsize == 5) then
-        write (nu_diag,*) "A Level 1 Cinco Curve:"
-        write (nu_diag,*) "------------------------"
+        write (*,*) "A Level 1 Cinco Curve:"
+        write (*,*) "------------------------"
         do i=1,gridsize
-           write(nu_diag,5) Mesh(1,i),Mesh(2,i),Mesh(3,i),Mesh(4,i),Mesh(5,i)
+           write(*,5) Mesh(1,i),Mesh(2,i),Mesh(3,i),Mesh(4,i),Mesh(5,i)
         enddo
      else if(gridsize == 6) then
-        write (nu_diag,*) "A Level 1 Hilbert and Level 1 Peano Curve:"
-        write (nu_diag,*) "------------------------------------------"
+        write (*,*) "A Level 1 Hilbert and Level 1 Peano Curve:"
+        write (*,*) "------------------------------------------"
         do i=1,gridsize
-           write(nu_diag,6) Mesh(1,i),Mesh(2,i),Mesh(3,i), &
-                      Mesh(4,i),Mesh(5,i),Mesh(6,i)
+           write(*,6) Mesh(1,i),Mesh(2,i),Mesh(3,i), &
+	    	      Mesh(4,i),Mesh(5,i),Mesh(6,i)
         enddo
      else if(gridsize == 8) then
-        write (nu_diag,*) "A Level 3 Hilbert Curve:"
-        write (nu_diag,*) "------------------------"
+        write (*,*) "A Level 3 Hilbert Curve:"
+        write (*,*) "------------------------"
         do i=1,gridsize
-           write(nu_diag,8) Mesh(1,i),Mesh(2,i),Mesh(3,i),Mesh(4,i), &
+           write(*,8) Mesh(1,i),Mesh(2,i),Mesh(3,i),Mesh(4,i), &
                       Mesh(5,i),Mesh(6,i),Mesh(7,i),Mesh(8,i)
          enddo
      else if(gridsize == 9) then
-        write (nu_diag,*) "A Level 2 Peano Meandering Curve:"
-        write (nu_diag,*) "---------------------------------"
+        write (*,*) "A Level 2 Peano Meandering Curve:"
+        write (*,*) "---------------------------------"
         do i=1,gridsize
-           write(nu_diag,9) Mesh(1,i),Mesh(2,i),Mesh(3,i),Mesh(4,i), &
+           write(*,9) Mesh(1,i),Mesh(2,i),Mesh(3,i),Mesh(4,i), &
                       Mesh(5,i),Mesh(6,i),Mesh(7,i),Mesh(8,i), &
                       Mesh(9,i)
          enddo
      else if(gridsize == 10) then
-        write (nu_diag,*) "A Level 1 Hilbert and Level 1 Cinco Curve:"
-        write (nu_diag,*) "---------------------------------"
+        write (*,*) "A Level 1 Hilbert and Level 1 Cinco Curve:"
+        write (*,*) "---------------------------------"
         do i=1,gridsize
-           write(nu_diag,10) Mesh(1,i),Mesh(2,i),Mesh(3,i),Mesh(4,i), &
+           write(*,10) Mesh(1,i),Mesh(2,i),Mesh(3,i),Mesh(4,i), &
                       Mesh(5,i),Mesh(6,i),Mesh(7,i),Mesh(8,i), &
                       Mesh(9,i),Mesh(10,i)
          enddo
      else if(gridsize == 12) then
-        write (nu_diag,*) "A Level 2 Hilbert and Level 1 Peano Curve:"
-        write (nu_diag,*) "------------------------------------------"
+        write (*,*) "A Level 2 Hilbert and Level 1 Peano Curve:"
+        write (*,*) "------------------------------------------"
         do i=1,gridsize
-           write(nu_diag,12) Mesh(1,i),Mesh(2,i), Mesh(3,i), Mesh(4,i), &
+           write(*,12) Mesh(1,i),Mesh(2,i), Mesh(3,i), Mesh(4,i), &
                        Mesh(5,i),Mesh(6,i), Mesh(7,i), Mesh(8,i), &
                        Mesh(9,i),Mesh(10,i),Mesh(11,i),Mesh(12,i)
         enddo
      else if(gridsize == 15) then
-        write (nu_diag,*) "A Level 1 Peano and Level 1 Cinco Curve:"
-        write (nu_diag,*) "------------------------"
+        write (*,*) "A Level 1 Peano and Level 1 Cinco Curve:"
+        write (*,*) "------------------------"
         do i=1,gridsize
-           write(nu_diag,15) Mesh(1,i),Mesh(2,i),Mesh(3,i),Mesh(4,i), &
+           write(*,15) Mesh(1,i),Mesh(2,i),Mesh(3,i),Mesh(4,i), &
                        Mesh(5,i),Mesh(6,i),Mesh(7,i),Mesh(8,i), &
                        Mesh(9,i),Mesh(10,i),Mesh(11,i),Mesh(12,i), &
                        Mesh(13,i),Mesh(14,i),Mesh(15,i)
         enddo
      else if(gridsize == 16) then
-        write (nu_diag,*) "A Level 4 Hilbert Curve:"
-        write (nu_diag,*) "------------------------"
+        write (*,*) "A Level 4 Hilbert Curve:"
+        write (*,*) "------------------------"
         do i=1,gridsize
-           write(nu_diag,16) Mesh(1,i),Mesh(2,i),Mesh(3,i),Mesh(4,i), &
+           write(*,16) Mesh(1,i),Mesh(2,i),Mesh(3,i),Mesh(4,i), &
                        Mesh(5,i),Mesh(6,i),Mesh(7,i),Mesh(8,i), &
                        Mesh(9,i),Mesh(10,i),Mesh(11,i),Mesh(12,i), &
                        Mesh(13,i),Mesh(14,i),Mesh(15,i),Mesh(16,i)
         enddo
      else if(gridsize == 18) then
-        write (nu_diag,*) "A Level 1 Hilbert and Level 2 Peano Curve:"
-        write (nu_diag,*) "------------------------------------------"
+        write (*,*) "A Level 1 Hilbert and Level 2 Peano Curve:"
+        write (*,*) "------------------------------------------"
         do i=1,gridsize
-           write(nu_diag,18) Mesh(1,i), Mesh(2,i), Mesh(3,i), Mesh(4,i), &
+           write(*,18) Mesh(1,i), Mesh(2,i), Mesh(3,i), Mesh(4,i), &
                        Mesh(5,i), Mesh(6,i), Mesh(7,i), Mesh(8,i), &
                        Mesh(9,i), Mesh(10,i),Mesh(11,i),Mesh(12,i), &
                        Mesh(13,i),Mesh(14,i),Mesh(15,i),Mesh(16,i), &
                        Mesh(17,i),Mesh(18,i)
         enddo
      else if(gridsize == 20) then
-        write (nu_diag,*) "A Level 2 Hilbert and Level 1 Cinco Curve:"
-        write (nu_diag,*) "------------------------------------------"
+        write (*,*) "A Level 2 Hilbert and Level 1 Cinco Curve:"
+        write (*,*) "------------------------------------------"
         do i=1,gridsize
-           write(nu_diag,20) Mesh(1,i), Mesh(2,i), Mesh(3,i), Mesh(4,i), &
+           write(*,20) Mesh(1,i), Mesh(2,i), Mesh(3,i), Mesh(4,i), &
                        Mesh(5,i), Mesh(6,i), Mesh(7,i), Mesh(8,i), &
                        Mesh(9,i), Mesh(10,i),Mesh(11,i),Mesh(12,i), &
                        Mesh(13,i),Mesh(14,i),Mesh(15,i),Mesh(16,i), &
                        Mesh(17,i),Mesh(18,i),Mesh(19,i),Mesh(20,i)
         enddo
      else if(gridsize == 24) then
-        write (nu_diag,*) "A Level 3 Hilbert and Level 1 Peano Curve:"
-        write (nu_diag,*) "------------------------------------------"
+        write (*,*) "A Level 3 Hilbert and Level 1 Peano Curve:"
+        write (*,*) "------------------------------------------"
         do i=1,gridsize
-           write(nu_diag,24) Mesh(1,i), Mesh(2,i), Mesh(3,i), Mesh(4,i), &
+           write(*,24) Mesh(1,i), Mesh(2,i), Mesh(3,i), Mesh(4,i), &
                        Mesh(5,i), Mesh(6,i), Mesh(7,i), Mesh(8,i), &
                        Mesh(9,i), Mesh(10,i),Mesh(11,i),Mesh(12,i), &
                        Mesh(13,i),Mesh(14,i),Mesh(15,i),Mesh(16,i), &
@@ -1611,22 +1606,22 @@ contains
                        Mesh(21,i),Mesh(22,i),Mesh(23,i),Mesh(24,i)
         enddo
      else if(gridsize == 25) then
-        write (nu_diag,*) "A Level 2 Cinco Curve:"
-        write (nu_diag,*) "------------------------------------------"
+        write (*,*) "A Level 2 Cinco Curve:"
+        write (*,*) "------------------------------------------"
         do i=1,gridsize
-           write(nu_diag,25) Mesh(1,i), Mesh(2,i), Mesh(3,i), Mesh(4,i), &
+           write(*,25) Mesh(1,i), Mesh(2,i), Mesh(3,i), Mesh(4,i), &
                        Mesh(5,i), Mesh(6,i), Mesh(7,i), Mesh(8,i), &
                        Mesh(9,i), Mesh(10,i),Mesh(11,i),Mesh(12,i), &
                        Mesh(13,i),Mesh(14,i),Mesh(15,i),Mesh(16,i), &
                        Mesh(17,i),Mesh(18,i),Mesh(19,i),Mesh(20,i), &
                        Mesh(21,i),Mesh(22,i),Mesh(23,i),Mesh(24,i), &
-                       Mesh(25,i)
+		       Mesh(25,i)
         enddo
      else if(gridsize == 27) then
-        write (nu_diag,*) "A Level 3 Peano Meandering Curve:"
-        write (nu_diag,*) "---------------------------------"
+        write (*,*) "A Level 3 Peano Meandering Curve:"
+        write (*,*) "---------------------------------"
         do i=1,gridsize
-           write(nu_diag,27) Mesh(1,i), Mesh(2,i), Mesh(3,i), Mesh(4,i), &
+           write(*,27) Mesh(1,i), Mesh(2,i), Mesh(3,i), Mesh(4,i), &
                        Mesh(5,i), Mesh(6,i), Mesh(7,i), Mesh(8,i), &
                        Mesh(9,i), Mesh(10,i),Mesh(11,i),Mesh(12,i), &
                        Mesh(13,i),Mesh(14,i),Mesh(15,i),Mesh(16,i), &
@@ -1634,24 +1629,11 @@ contains
                        Mesh(21,i),Mesh(22,i),Mesh(23,i),Mesh(24,i), &
                        Mesh(25,i),Mesh(26,i),Mesh(27,i)
         enddo
-     else if(gridsize == 30) then
-        write (nu_diag,*) "A Level 1 Cinco and Level 1 Peano and Level 1 Hilbert Curve:"
-        write (nu_diag,*) "---------------------------------"
-        do i=1,gridsize
-           write(nu_diag,30) Mesh(1,i), Mesh(2,i), Mesh(3,i), Mesh(4,i), &
-                       Mesh(5,i), Mesh(6,i), Mesh(7,i), Mesh(8,i), &
-                       Mesh(9,i), Mesh(10,i),Mesh(11,i),Mesh(12,i), &
-                       Mesh(13,i),Mesh(14,i),Mesh(15,i),Mesh(16,i), &
-                       Mesh(17,i),Mesh(18,i),Mesh(19,i),Mesh(20,i), &
-                       Mesh(21,i),Mesh(22,i),Mesh(23,i),Mesh(24,i), &
-                       Mesh(25,i),Mesh(26,i),Mesh(27,i),Mesh(28,i), &
-                       Mesh(29,i),Mesh(30,i)
-        enddo
      else if(gridsize == 32) then
-        write (nu_diag,*) "A Level 5 Hilbert Curve:"
-        write (nu_diag,*) "------------------------"
+        write (*,*) "A Level 5 Hilbert Curve:"
+        write (*,*) "------------------------"
         do i=1,gridsize
-           write(nu_diag,32) Mesh(1,i), Mesh(2,i), Mesh(3,i), Mesh(4,i),  &
+           write(*,32) Mesh(1,i), Mesh(2,i), Mesh(3,i), Mesh(4,i),  &
                        Mesh(5,i), Mesh(6,i), Mesh(7,i), Mesh(8,i),  &
                        Mesh(9,i), Mesh(10,i),Mesh(11,i),Mesh(12,i), &
                        Mesh(13,i),Mesh(14,i),Mesh(15,i),Mesh(16,i), &
@@ -1677,7 +1659,6 @@ contains
 24 format('|',24(i3,'|'))
 25 format('|',25(i3,'|'))
 27 format('|',27(i3,'|'))
-30 format('|',30(i4,'|'))
 32 format('|',32(i4,'|'))
 
 !EOC
@@ -1702,7 +1683,7 @@ contains
 
 ! !INPUT/OUTPUT PARAMETERS:
    integer(int_kind), target,intent(inout) :: &
-        Mesh(:,:)      ! The SFC ordering in 2D array
+	Mesh(:,:)		! The SFC ordering in 2D array
 
 !EOP
 !BOC
@@ -1713,8 +1694,8 @@ contains
 !-----------------------------------------------------------------------
 
    integer(int_kind) ::  &
-        level,   &! Level of space-filling curve
-        dim       ! dimension of SFC... currently limited to 2D
+	level,   &! Level of space-filling curve		
+	dim       ! dimension of SFC... currently limited to 2D
 
    integer(int_kind) :: gridsize   ! number of points on a side
    
@@ -1730,13 +1711,7 @@ contains
    fact     = factor(gridsize)
    level    = fact%numfact
 
-   if (debug_blocks .and. my_task==master_task .and. my_task==master_task) then
-      write(nu_diag,*) subname,' dim,size = ',dim,gridsize
-      write(nu_diag,*) subname,' numfact  = ',level
-      call printfactor(subname,fact)
-      call flush_fileunit(nu_diag)
-   endif
-
+   if(verbose) print *,'GenSpacecurve: level is ',level
    allocate(ordered(gridsize,gridsize))
 
    !--------------------------------------------
@@ -1755,10 +1730,61 @@ contains
 
    deallocate(pos,ordered)
 
+!EOP
+!-----------------------------------------------------------------------
+
   end subroutine GenSpaceCurve 
 
-!EOC
-!-----------------------------------------------------------------------
+  recursive subroutine qsort(a)
+   
+    integer, intent(inout) :: a(:)
+    integer :: split
+    character(len=*),parameter :: subname='(qsort)'
+   
+    if(SIZE(a) > 1) then 
+      call partition(a,split)
+      call qsort(a(:split-1))
+      call qsort(a(split:))
+    endif 
+
+  end subroutine qsort
+
+  subroutine partition(a,marker)
+
+     INTEGER, INTENT(IN OUT) :: a(:)
+     INTEGER, INTENT(OUT) :: marker
+     INTEGER :: left, right, pivot, temp
+     character(len=*),parameter :: subname='(partition)'
+ 
+     pivot = (a(1) + a(size(a))) / 2  ! Average of first and last elements to prevent quadratic 
+     left = 0                         ! behavior with sorted or reverse sorted data
+     right = size(a) + 1
+ 
+     DO WHILE (left < right)
+        right = right - 1
+        DO WHILE (a(right) > pivot)
+           right = right-1
+        END DO
+        left = left + 1
+        DO WHILE (a(left) < pivot)
+           left = left + 1
+        END DO
+        IF (left < right) THEN 
+           temp = a(left)
+           a(left) = a(right)
+           a(right) = temp
+        END IF
+     END DO
+ 
+     IF (left == right) THEN
+        marker = left + 1
+     ELSE
+        marker = left
+     END IF
+
+  end subroutine partition
+     
+
 
 end module ice_spacecurve
 

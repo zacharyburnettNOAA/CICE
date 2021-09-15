@@ -66,7 +66,7 @@
       subroutine init_hist_pond_2D
 
       use ice_broadcast, only: broadcast_scalar
-      use ice_calendar, only: nstreams, histfreq
+      use ice_calendar, only: nstreams
       use ice_communicate, only: my_task, master_task
       use ice_history_shared, only: tstr2D, tcstr, define_hist_field
 
@@ -75,14 +75,14 @@
       logical (kind=log_kind) :: tr_pond
       character(len=*), parameter :: subname = '(init_hist_pond_2D)'
 
+      !-----------------------------------------------------------------
+      ! read namelist
+      !-----------------------------------------------------------------
+
       call icepack_query_tracer_flags(tr_pond_out=tr_pond)
       call icepack_warnings_flush(nu_diag)
       if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
          file=__FILE__, line=__LINE__)
-
-      !-----------------------------------------------------------------
-      ! read namelist
-      !-----------------------------------------------------------------
 
       call get_fileunit(nu_nml)
       if (my_task == master_task) then
@@ -135,7 +135,6 @@
 
       ! 2D variables
       do ns = 1, nstreams
-      if (histfreq(ns) /= 'x') then
 
       if (f_apond(1:1) /= 'x') &
          call define_hist_field(n_apond,"apond","1",tstr2D, tcstr, &
@@ -185,7 +184,6 @@
              "weighted by ice area", c1, c0,                       &
              ns, f_apeff_ai)
 
-      endif ! histfreq(ns) /= 'x'
       enddo ! nstreams
 
       endif ! tr_pond
@@ -196,7 +194,7 @@
 
       subroutine init_hist_pond_3Dc
 
-      use ice_calendar, only: nstreams, histfreq
+      use ice_calendar, only: nstreams
       use ice_history_shared, only: tstr3Dc, tcstr, define_hist_field
 
       integer (kind=int_kind) :: ns
@@ -212,7 +210,6 @@
       
       ! 3D (category) variables must be looped separately
       do ns = 1, nstreams
-        if (histfreq(ns) /= 'x') then
 
         if (f_apondn(1:1) /= 'x') &
            call define_hist_field(n_apondn,"apondn","1",tstr3Dc, tcstr, &
@@ -230,7 +227,6 @@
              "none", c1, c0,                                  &
              ns, f_apeffn)
 
-        endif ! histfreq(ns) /= 'x'
       enddo ! ns
 
       endif ! tr_pond
@@ -290,7 +286,6 @@
          if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
             file=__FILE__, line=__LINE__)
 
-         if (allocated(a2D)) then
          if (tr_pond_cesm) then
          if (f_apond(1:1)/= 'x') &
              call accum_hist_field(n_apond, iblk, &
@@ -379,10 +374,7 @@
          if (f_apeff_ai(1:1) /= 'x') &
              call accum_hist_field(n_apeff_ai, iblk, apeff_ai(:,:,iblk), a2D)
 
-         endif ! allocated(a2D)
-
          ! 3D category fields
-         if (allocated(a3Dc)) then
          if (f_apondn   (1:1) /= 'x') &
              call accum_hist_field(n_apondn-n2D, iblk, ncat_hist, &
                   trcrn(:,:,nt_apnd,1:ncat_hist,iblk), a3Dc)
@@ -393,7 +385,6 @@
              call accum_hist_field(n_hpondn-n2D, iblk, ncat_hist, &
                     trcrn(:,:,nt_apnd,1:ncat_hist,iblk) &
                   * trcrn(:,:,nt_hpnd,1:ncat_hist,iblk), a3Dc)
-         endif ! allocated(a3Dc)
 
       end subroutine accum_hist_pond
 

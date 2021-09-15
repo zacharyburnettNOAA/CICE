@@ -8,17 +8,27 @@
 ! author: Phil Jones, LANL
 ! Oct. 2004: Adapted from POP version by William H. Lipscomb, LANL
 
-   use mpi   ! MPI Fortran module
    use ice_kinds_mod
    use ice_exit, only: abort_ice
    use icepack_intfc, only: icepack_warnings_flush, icepack_warnings_aborted
+
+#if defined key_oasis3 || key_oasis3mct
+   use cpl_oasis3
+#endif
+
+#if defined key_oasis4
+   use cpl_oasis4
+#endif
+
+#if defined key_iomput
+   use lib_mpp, only:   mpi_comm_opa      ! MPP library
+#endif
 
    implicit none
    private
 
    public  :: init_communicate,          &
               get_num_procs,             &
-              get_rank,                  &
               ice_barrier,               &
               create_communicator
 
@@ -33,9 +43,6 @@
    integer (int_kind), parameter, public :: &
       mpitagHalo            = 1,    &! MPI tags for various
       mpitag_gs             = 1000   ! communication patterns
-
-   logical (log_kind), public :: &
-      add_mpi_barriers      = .false. ! turn on mpi barriers for throttling
 
 !***********************************************************************
 
@@ -53,6 +60,8 @@
 !  local variables
 !
 !-----------------------------------------------------------------------
+
+   include 'mpif.h'   ! MPI Fortran include file
 
    integer (kind=int_kind), optional, intent(in) :: mpicom ! specified communicator
 
@@ -72,7 +81,13 @@
    if (present(mpicom)) then
      ice_comm = mpicom
    else
+#if (defined key_oasis3 || defined key_oasis3mct || defined key_oasis4)
+     ice_comm = localComm       ! communicator from NEMO/OASISn 
+#elif defined key_iomput
+     ice_comm = mpi_comm_opa    ! communicator from NEMO/XIOS
+#else
      ice_comm = MPI_COMM_WORLD  ! Global communicator 
+#endif 
    endif
 
    call MPI_INITIALIZED(flag,ierr)
@@ -84,11 +99,7 @@
    master_task = 0
    call MPI_COMM_RANK  (MPI_COMM_ICE, my_task, ierr)
 
-#if (defined NO_R16)
-   mpiR16 = MPI_REAL8
-#else
    mpiR16 = MPI_REAL16
-#endif
    mpiR8  = MPI_REAL8
    mpiR4  = MPI_REAL4
 
@@ -124,32 +135,6 @@
 
 !***********************************************************************
 
- function get_rank()
-
-!  This function returns the number of processor assigned to
-!  MPI_COMM_ICE
-
-   integer (int_kind) :: get_rank
-
-!-----------------------------------------------------------------------
-!
-!  local variables
-!
-!-----------------------------------------------------------------------
-
-   integer (int_kind) :: ierr
-   character(len=*), parameter :: subname = '(get_rank)'
-
-!-----------------------------------------------------------------------
-
-   call MPI_COMM_RANK(MPI_COMM_ICE, get_rank, ierr)
-
-!-----------------------------------------------------------------------
-
- end function get_rank
-
-!***********************************************************************
-
  subroutine ice_barrier()
 
 !  This function calls an MPI_BARRIER
@@ -181,6 +166,8 @@
 !  this routine should be called from init_domain1 when the
 !  domain configuration (e.g. nprocs_btrop) has been determined
 
+   include 'mpif.h'
+
    integer (int_kind), intent(in) :: &
       num_procs         ! num of procs in new distribution
 
@@ -200,7 +187,7 @@
    integer (int_kind) :: &
      ierr                    ! error flag for MPI comms
 
-   integer (int_kind), dimension(3,1) :: &
+   integer (int_kind), dimension(3) :: &
      range                   ! range of tasks assigned to new dist
                              !  (assumed 0,num_procs-1)
 
@@ -214,9 +201,9 @@
 
    call MPI_COMM_GROUP (MPI_COMM_ICE, MPI_GROUP_ICE, ierr)
 
-   range(1,1) = 0
-   range(2,1) = num_procs-1
-   range(3,1) = 1
+   range(1) = 0
+   range(2) = num_procs-1
+   range(3) = 1
 
 !-----------------------------------------------------------------------
 !

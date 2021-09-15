@@ -83,24 +83,21 @@
       nblocks_x        ,&! tot num blocks in i direction
       nblocks_y          ! tot num blocks in j direction
 
-   logical (kind=log_kind), public :: &
-      debug_blocks       ! print verbose block information
-
 !-----------------------------------------------------------------------
 !
 !  module private data
 !
 !-----------------------------------------------------------------------
 
-   type (block), dimension(:), allocatable, public :: &
+   type (block), dimension(:), allocatable :: &
       all_blocks         ! block information for all blocks in domain
 
-   integer (int_kind), dimension(:,:),allocatable, public :: &
+   integer (int_kind), dimension(:,:),allocatable :: &
       all_blocks_ij      ! block index stored in Cartesian order
                          !   useful for determining block index
                          !   of neighbor blocks
 
-   integer (int_kind), dimension(:,:), allocatable, target, public :: &
+   integer (int_kind), dimension(:,:), allocatable, target :: &
       i_global,         &! global i index for each point in each block
       j_global           ! global j index for each point in each block
 
@@ -136,6 +133,8 @@ contains
       iblock, jblock       ,&! block loop indices
       is, ie, js, je         ! temp start, end indices
 
+   logical (log_kind) :: dbug
+
    character(len=*), parameter :: subname = '(create_blocks)'
 
 !----------------------------------------------------------------------
@@ -158,10 +157,10 @@ contains
 !
 !----------------------------------------------------------------------
 
-   if (.not.allocated(all_blocks)) allocate(all_blocks(nblocks_tot))
-   if (.not.allocated(i_global)) allocate(i_global(nx_block,nblocks_tot))
-   if (.not.allocated(j_global)) allocate(j_global(ny_block,nblocks_tot))
-   if (.not.allocated(all_blocks_ij)) allocate(all_blocks_ij(nblocks_x,nblocks_y))
+   allocate(all_blocks(nblocks_tot))
+   allocate(i_global(nx_block,nblocks_tot), &
+            j_global(ny_block,nblocks_tot))
+   allocate(all_blocks_ij(nblocks_x,nblocks_y))
 
 !----------------------------------------------------------------------
 !
@@ -253,8 +252,8 @@ contains
             !*** set last physical point if padded domain
 
             else if (j_global(j,n) == ny_global .and. &
-                     j >= all_blocks(n)%jlo      .and. &
-                     j <  all_blocks(n)%jhi) then
+                     j > all_blocks(n)%jlo      .and. &
+                     j < all_blocks(n)%jhi) then
                all_blocks(n)%jhi = j   ! last physical point in padded domain
             endif
          end do
@@ -301,8 +300,8 @@ contains
             !*** last physical point in padded domain
 
             else if (i_global(i,n) == nx_global .and. &
-                     i >= all_blocks(n)%ilo      .and. &
-                     i <  all_blocks(n)%ihi) then
+                     i > all_blocks(n)%ilo      .and. &
+                     i < all_blocks(n)%ihi) then
                all_blocks(n)%ihi = i
             endif
          end do
@@ -312,15 +311,16 @@ contains
       end do
    end do
 
-   if (debug_blocks) then
+   dbug = .true.
+!   dbug = .false.
+   if (dbug) then
       if (my_task == master_task) then
       write(nu_diag,*) 'block i,j locations'
       do n = 1, nblocks_tot
-         write(nu_diag,*) 'block id, iblock, jblock, tripole:', &
+         write(nu_diag,*) 'block id, iblock, jblock:', &
          all_blocks(n)%block_id, &
          all_blocks(n)%iblock,   & 
-         all_blocks(n)%jblock,   &
-         all_blocks(n)%tripole
+         all_blocks(n)%jblock
       enddo
       endif
    endif

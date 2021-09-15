@@ -81,7 +81,7 @@
       subroutine init_hist_mechred_2D
 
       use ice_broadcast, only: broadcast_scalar
-      use ice_calendar, only: nstreams, histfreq
+      use ice_calendar, only: nstreams
       use ice_communicate, only: my_task, master_task
       use ice_history_shared, only: tstr2D, tcstr, define_hist_field
 
@@ -157,7 +157,6 @@
       ! 2D variables
 
       do ns = 1, nstreams
-      if (histfreq(ns) /= 'x') then
 
       if (f_alvl(1:1) /= 'x') &
          call define_hist_field(n_alvl,"alvl","1",tstr2D, tcstr, &
@@ -204,7 +203,6 @@
              "none", secday*c100, c0,                                    &
              ns, f_opening)
 
-      endif ! histfreq(ns) /= 'x'
       enddo ! nstreams
 
       end subroutine init_hist_mechred_2D
@@ -213,7 +211,7 @@
 
       subroutine init_hist_mechred_3Dc
 
-      use ice_calendar, only: nstreams, histfreq
+      use ice_calendar, only: nstreams
       use ice_history_shared, only: tstr3Dc, tcstr, define_hist_field
 
       integer (kind=int_kind) :: ns
@@ -230,7 +228,6 @@
          file=__FILE__, line=__LINE__)
 
       do ns = 1, nstreams
-      if (histfreq(ns) /= 'x') then
 
        if (f_ardgn(1:1) /= 'x') &
            call define_hist_field(n_ardgn,"ardgn","1",tstr3Dc, tcstr, &
@@ -298,7 +295,6 @@
              "none", c1, c0,                                       &
              ns, f_vraftn)
 
-      endif ! histfreq(ns) /= 'x'
       enddo ! ns
 
       end subroutine init_hist_mechred_3Dc
@@ -336,7 +332,6 @@
       !---------------------------------------------------------------
 
          ! 2D fields
-         if (allocated(a2D)) then
 
          if (f_alvl(1:1)/= 'x') &
              call accum_hist_field(n_alvl,   iblk, &
@@ -359,10 +354,7 @@
          if (f_opening(1:1) /= 'x') &
              call accum_hist_field(n_opening, iblk, opening(:,:,iblk), a2D)
 
-         endif ! allocated(a2D)
-
          ! 3D category fields
-         if (allocated(a3Dc)) then
 
          if (f_ardgn(1:1)/= 'x') &
              call accum_hist_field(n_ardgn-n2D, iblk, ncat_hist, &
@@ -399,7 +391,6 @@
          if (f_vraftn(1:1)/= 'x') &
              call accum_hist_field(n_vraftn-n2D, iblk, ncat_hist, &
                                    vraftn(:,:,1:ncat_hist,iblk), a3Dc)
-         endif ! allocated(a3Dc)
 
       end subroutine accum_hist_mechred
 

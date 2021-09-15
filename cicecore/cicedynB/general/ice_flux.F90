@@ -46,7 +46,11 @@
          vocn    , & ! ocean current, y-direction (m/s)
          ss_tltx , & ! sea surface slope, x-direction (m/m)
          ss_tlty , & ! sea surface slope, y-direction
-         hwater  , & ! water depth for seabed stress calc (landfast ice) 
+         ss_sic ,  & ! sea ice concentration for lataral boundaries (%)           !hhu
+         ss_sih ,  & ! sea ice thickness for lataral boundaries (m)               !hhu 
+         ss_siu ,  & ! sea ice velocity, x-direction for lataral boundaries (m/s) !hhu 
+         ss_siv ,  & ! sea ice velocity, y-direction for lataral boundaries (m/s) !hhu 
+         hwater  , & ! water depth for basal stress calc (landfast ice) 
 
        ! out to atmosphere
          strairxT, & ! stress on ice by air, x-direction
@@ -63,8 +67,8 @@
          sig1    , & ! normalized principal stress component
          sig2    , & ! normalized principal stress component
          sigP    , & ! internal ice pressure (N/m)
-         taubx   , & ! seabed stress (x) (N/m^2)
-         tauby   , & ! seabed stress (y) (N/m^2)
+         taubx   , & ! basal stress (x) (N/m^2)
+         tauby   , & ! basal stress (y) (N/m^2)
          strairx , & ! stress on ice by air, x-direction
          strairy , & ! stress on ice by air, y-direction
          strocnx , & ! ice-ocean stress, x-direction
@@ -112,7 +116,7 @@
 
       real (kind=dbl_kind), dimension (:,:,:), allocatable, public :: &
          fm       , & ! Coriolis param. * mass in U-cell (kg/s)
-         Tbu          ! factor for seabed stress (N/m^2)
+         Tbu          ! coefficient for basal stress (N/m^2)
 
       !-----------------------------------------------------------------
       ! Thermodynamic component
@@ -121,8 +125,7 @@
        ! in from atmosphere (if calc_Tsfc)
 
       real (kind=dbl_kind), dimension (:,:,:), allocatable, public :: &
-         zlvl    , & ! atm level height (momentum) (m)
-         zlvs    , & ! atm level height (scalar quantities) (m)
+         zlvl    , & ! atm level height (m)
          uatm    , & ! wind velocity components (m/s)
          vatm    , &
          wind    , & ! wind speed (m/s)
@@ -218,12 +221,7 @@
          fresh   , & ! fresh water flux to ocean (kg/m^2/s)
          fsalt   , & ! salt flux to ocean (kg/m^2/s)
          fhocn   , & ! net heat flux to ocean (W/m^2)
-         fsloss  , & ! rate of snow loss to leads (kg/m^2/s)
-         fswthru , & ! shortwave penetrating to ocean (W/m^2)
-         fswthru_vdr , & ! vis dir shortwave penetrating to ocean (W/m^2)
-         fswthru_vdf , & ! vis dif shortwave penetrating to ocean (W/m^2)
-         fswthru_idr , & ! nir dir shortwave penetrating to ocean (W/m^2)
-         fswthru_idf     ! nir dif shortwave penetrating to ocean (W/m^2)
+         fswthru     ! shortwave penetrating to ocean (W/m^2)
 
        ! internal
 
@@ -295,10 +293,6 @@
          fsensn,   & ! category sensible heat flux
          flatn       ! category latent heat flux
 
-      real (kind=dbl_kind), &
-         dimension (:,:,:,:), allocatable, public :: &
-         snwcnt       ! counter for presence of snow
-
       ! As above but these remain grid box mean values i.e. they are not
       ! divided by aice at end of ice_dynamics.  These are used in
       ! CICE_IN_NEMO for coupling and also for generating
@@ -317,18 +311,12 @@
          fresh_da, & ! fresh water flux to ocean due to data assim (kg/m^2/s)
          fsalt_da    ! salt flux to ocean due to data assimilation(kg/m^2/s)
 
-      real (kind=dbl_kind), dimension (:,:,:,:), allocatable, public :: &
-         fswthrun_ai  ! per-category fswthru * ai (W/m^2)
- 
-      logical (kind=log_kind), public :: send_i2x_per_cat = .false.
-
       !-----------------------------------------------------------------
       ! internal
       !-----------------------------------------------------------------
 
       real (kind=dbl_kind), dimension (:,:,:), allocatable, public :: &
          rside   , & ! fraction of ice that melts laterally
-         fside   , & ! lateral heat flux (W/m^2)
          fsw     , & ! incoming shortwave radiation (W/m^2)
          coszen  , & ! cosine solar zenith angle, < 0 for sun below horizon 
          rdg_conv, & ! convergence term for ridging (1/s)
@@ -357,7 +345,11 @@
          vocn       (nx_block,ny_block,max_blocks), & ! ocean current, y-direction (m/s)
          ss_tltx    (nx_block,ny_block,max_blocks), & ! sea surface slope, x-direction (m/m)
          ss_tlty    (nx_block,ny_block,max_blocks), & ! sea surface slope, y-direction
-         hwater     (nx_block,ny_block,max_blocks), & ! water depth for seabed stress calc (landfast ice) 
+         ss_sic     (nx_block,ny_block,max_blocks), & ! sea ice concentration (%)             !hhu
+         ss_sih     (nx_block,ny_block,max_blocks), & ! sea ice thickness (m)                 !hhu
+         ss_siu     (nx_block,ny_block,max_blocks), & ! sea ice velocity, x-direction (m/s)   !hhu
+         ss_siv     (nx_block,ny_block,max_blocks), & ! sea ice velocity, y-direction (m/s)   !hhu
+         hwater     (nx_block,ny_block,max_blocks), & ! water depth for basal stress calc (landfast ice) 
          strairxT   (nx_block,ny_block,max_blocks), & ! stress on ice by air, x-direction
          strairyT   (nx_block,ny_block,max_blocks), & ! stress on ice by air, y-direction
          strocnxT   (nx_block,ny_block,max_blocks), & ! ice-ocean stress, x-direction
@@ -365,8 +357,8 @@
          sig1       (nx_block,ny_block,max_blocks), & ! normalized principal stress component
          sig2       (nx_block,ny_block,max_blocks), & ! normalized principal stress component
          sigP       (nx_block,ny_block,max_blocks), & ! internal ice pressure (N/m)
-         taubx      (nx_block,ny_block,max_blocks), & ! seabed stress (x) (N/m^2)
-         tauby      (nx_block,ny_block,max_blocks), & ! seabed stress (y) (N/m^2)
+         taubx      (nx_block,ny_block,max_blocks), & ! basal stress (x) (N/m^2)
+         tauby      (nx_block,ny_block,max_blocks), & ! basal stress (y) (N/m^2)
          strairx    (nx_block,ny_block,max_blocks), & ! stress on ice by air, x-direction
          strairy    (nx_block,ny_block,max_blocks), & ! stress on ice by air, y-direction
          strocnx    (nx_block,ny_block,max_blocks), & ! ice-ocean stress, x-direction
@@ -396,9 +388,8 @@
          stress12_4 (nx_block,ny_block,max_blocks), & ! sigma12
          iceumask   (nx_block,ny_block,max_blocks), & ! ice extent mask (U-cell)
          fm         (nx_block,ny_block,max_blocks), & ! Coriolis param. * mass in U-cell (kg/s)
-         Tbu        (nx_block,ny_block,max_blocks), & ! factor for seabed stress (landfast ice)
-         zlvl       (nx_block,ny_block,max_blocks), & ! atm level height (momentum) (m)
-         zlvs       (nx_block,ny_block,max_blocks), & ! atm level height (scalar quantities) (m)
+         Tbu        (nx_block,ny_block,max_blocks), & ! coefficient for basal stress (landfast ice)
+         zlvl       (nx_block,ny_block,max_blocks), & ! atm level height (m)
          uatm       (nx_block,ny_block,max_blocks), & ! wind velocity components (m/s)
          vatm       (nx_block,ny_block,max_blocks), &
          wind       (nx_block,ny_block,max_blocks), & ! wind speed (m/s)
@@ -453,12 +444,7 @@
          fresh      (nx_block,ny_block,max_blocks), & ! fresh water flux to ocean (kg/m^2/s)
          fsalt      (nx_block,ny_block,max_blocks), & ! salt flux to ocean (kg/m^2/s)
          fhocn      (nx_block,ny_block,max_blocks), & ! net heat flux to ocean (W/m^2)
-         fsloss     (nx_block,ny_block,max_blocks), & ! rate of snow loss to leads (kg/m^2/s)
          fswthru    (nx_block,ny_block,max_blocks), & ! shortwave penetrating to ocean (W/m^2)
-         fswthru_vdr (nx_block,ny_block,max_blocks), & ! vis dir shortwave penetrating to ocean (W/m^2)
-         fswthru_vdf (nx_block,ny_block,max_blocks), & ! vis dif shortwave penetrating to ocean (W/m^2)
-         fswthru_idr (nx_block,ny_block,max_blocks), & ! nir dir shortwave penetrating to ocean (W/m^2)
-         fswthru_idf (nx_block,ny_block,max_blocks), & ! nir dif shortwave penetrating to ocean (W/m^2)
          scale_factor (nx_block,ny_block,max_blocks), & ! scaling factor for shortwave components
          strairx_ocn(nx_block,ny_block,max_blocks), & ! stress on ocean by air, x-direction
          strairy_ocn(nx_block,ny_block,max_blocks), & ! stress on ocean by air, y-direction
@@ -499,7 +485,6 @@
          fresh_da   (nx_block,ny_block,max_blocks), & ! fresh water flux to ocean due to data assim (kg/m^2/s)
          fsalt_da   (nx_block,ny_block,max_blocks), & ! salt flux to ocean due to data assimilation(kg/m^2/s)
          rside      (nx_block,ny_block,max_blocks), & ! fraction of ice that melts laterally
-         fside      (nx_block,ny_block,max_blocks), & ! lateral melt rate (W/m^2)
          fsw        (nx_block,ny_block,max_blocks), & ! incoming shortwave radiation (W/m^2)
          coszen     (nx_block,ny_block,max_blocks), & ! cosine solar zenith angle, < 0 for sun below horizon 
          rdg_conv   (nx_block,ny_block,max_blocks), & ! convergence term for ridging (1/s)
@@ -531,7 +516,6 @@
          fsensn     (nx_block,ny_block,ncat,max_blocks), & ! category sensible heat flux
          flatn      (nx_block,ny_block,ncat,max_blocks), & ! category latent heat flux
          albcnt     (nx_block,ny_block,max_blocks,max_nstrm), & ! counter for zenith angle
-         snwcnt     (nx_block,ny_block,max_blocks,max_nstrm), & ! counter for snow
          salinz     (nx_block,ny_block,nilyr+1,max_blocks), & ! initial salinity  profile (ppt)   
          Tmltz      (nx_block,ny_block,nilyr+1,max_blocks), & ! initial melting temperature (^oC)
          stat=ierr)
@@ -549,15 +533,14 @@
       subroutine init_coupler_flux
 
       use ice_arrays_column, only: Cdn_atm
-      use ice_flux_bgc, only: flux_bio_atm, flux_bio, faero_atm, fiso_atm, &
+      use ice_flux_bgc, only: flux_bio_atm, flux_bio, faero_atm, &
            fnit, famm, fsil, fdmsp, fdms, fhum, fdust, falgalN, &
            fdoc, fdon, fdic, ffed, ffep
       use ice_grid, only: bathymetry
 
       integer (kind=int_kind) :: n
 
-      integer (kind=int_kind), parameter :: max_d = 6
-      real (kind=dbl_kind) :: fcondtopn_d(max_d), fsurfn_d(max_d)
+      real (kind=dbl_kind) :: fcondtopn_d(6), fsurfn_d(6)
       real (kind=dbl_kind) :: stefan_boltzmann, Tffresh
       real (kind=dbl_kind) :: vonkar, zref, iceruf
 
@@ -579,8 +562,7 @@
       !-----------------------------------------------------------------
       ! fluxes received from atmosphere
       !-----------------------------------------------------------------
-      zlvl  (:,:,:) = c10             ! atm level height (momentum) (m)
-      zlvs  (:,:,:) = c10             ! atm level height (scalar quantities) (m)
+      zlvl  (:,:,:) = c10             ! atm level height (m)
       rhoa  (:,:,:) = 1.3_dbl_kind    ! air density (kg/m^3)
       uatm  (:,:,:) = c5              ! wind velocity    (m/s)
       vatm  (:,:,:) = c5
@@ -600,7 +582,7 @@
          flw   (:,:,:) = c180            ! incoming longwave rad (W/m^2)
          frain (:,:,:) = c0              ! rainfall rate (kg/m2/s)
          do n = 1, ncat              ! conductive heat flux (W/m^2)
-            fcondtopn_f(:,:,n,:) = fcondtopn_d(min(n,max_d))
+            fcondtopn_f(:,:,n,:) = fcondtopn_d(n)
          enddo
          fsurfn_f = fcondtopn_f      ! surface heat flux (W/m^2)
          flatn_f (:,:,:,:) = c0          ! latent heat flux (kg/m2/s)
@@ -617,7 +599,7 @@
          flw   (:,:,:) = 280.0_dbl_kind  ! incoming longwave rad (W/m^2)
          frain (:,:,:) = c0              ! rainfall rate (kg/m2/s)
          do n = 1, ncat                   ! surface heat flux (W/m^2)
-            fsurfn_f(:,:,n,:) = fsurfn_d(min(n,max_d))
+            fsurfn_f(:,:,n,:) = fsurfn_d(n)
          enddo
          fcondtopn_f(:,:,:,:) =  0.0_dbl_kind ! conductive heat flux (W/m^2)
          flatn_f    (:,:,:,:) = -2.0_dbl_kind ! latent heat flux (W/m^2)
@@ -634,14 +616,13 @@
          flw   (:,:,:) = 230.0_dbl_kind  ! incoming longwave rad (W/m^2)
          frain (:,:,:) = c0              ! rainfall rate (kg/m2/s)
          do n = 1, ncat                   ! surface heat flux (W/m^2)
-            fsurfn_f(:,:,n,:) = fsurfn_d(min(n,max_d))
+            fsurfn_f(:,:,n,:) = fsurfn_d(n)
          enddo
          fcondtopn_f(:,:,:,:) =  c0           ! conductive heat flux (W/m^2)
          flatn_f    (:,:,:,:) = -1.0_dbl_kind ! latent heat flux (W/m^2)
          fsensn_f   (:,:,:,:) =  c0           ! sensible heat flux (W/m^2)
       endif !   
 
-      fiso_atm  (:,:,:,:) = c0           ! isotope deposition rate (kg/m2/s)
       faero_atm (:,:,:,:) = c0           ! aerosol deposition rate (kg/m2/s)
       flux_bio_atm (:,:,:,:) = c0        ! zaero and bio deposition rate (kg/m2/s)
 
@@ -651,6 +632,10 @@
 
       ss_tltx(:,:,:)= c0              ! sea surface tilt (m/m)
       ss_tlty(:,:,:)= c0
+      ss_sic (:,:,:)= c0              ! sea ice concentation (%)    !hhu
+      ss_sih (:,:,:)= c0              ! sea ice thickness (m)       !hhu
+      ss_siu (:,:,:)= c0              ! sea ice velocity, u (m/s)   !hhu
+      ss_siv (:,:,:)= c0              ! sea ice velocity, v (m/s)   !hhu
       uocn  (:,:,:) = c0              ! surface ocean currents (m/s)
       vocn  (:,:,:) = c0
       frzmlt(:,:,:) = c0              ! freezing/melting potential (W/m^2)
@@ -665,7 +650,9 @@
       enddo
       enddo
 
+#ifndef CICE_IN_NEMO
       sst   (:,:,:) = Tf(:,:,:)       ! sea surface temp (C)
+#endif
       qdp   (:,:,:) = c0              ! deep ocean heat flux (W/m^2)
       hmix  (:,:,:) = c20             ! ocean mixed layer depth (m)
       hwater(:,:,:) = bathymetry(:,:,:) ! ocean water depth (m)
@@ -706,10 +693,6 @@
       fpond   (:,:,:) = c0
       fhocn   (:,:,:) = c0
       fswthru (:,:,:) = c0
-      fswthru_vdr (:,:,:) = c0
-      fswthru_vdf (:,:,:) = c0
-      fswthru_idr (:,:,:) = c0
-      fswthru_idf (:,:,:) = c0
       fresh_da(:,:,:) = c0    ! data assimilation
       fsalt_da(:,:,:) = c0
       flux_bio (:,:,:,:) = c0 ! bgc
@@ -727,9 +710,6 @@
       ffep   (:,:,:,:)= c0
       ffed   (:,:,:,:)= c0
       
-      allocate(fswthrun_ai(nx_block,ny_block,ncat,max_blocks))
-      fswthrun_ai(:,:,:,:) = c0
-
       !-----------------------------------------------------------------
       ! derived or computed fields
       !-----------------------------------------------------------------
@@ -741,11 +721,6 @@
                            + vatm(:,:,:)**2)  ! wind speed, (m/s)
       Cdn_atm(:,:,:) = (vonkar/log(zref/iceruf)) &
                      * (vonkar/log(zref/iceruf)) ! atmo drag for RASM
-      alvdr_init(:,:,:) = c0
-      alidr_init(:,:,:) = c0
-      alvdf_init(:,:,:) = c0
-      alidf_init(:,:,:) = c0
-
 
       end subroutine init_coupler_flux
 
@@ -756,8 +731,6 @@
 ! author: Elizabeth C. Hunke, LANL
 
       subroutine init_flux_atm
-
-      use ice_flux_bgc, only: fiso_evap, Qref_iso, Qa_iso
 
       character(len=*), parameter :: subname = '(init_flux_atm)'
 
@@ -780,10 +753,6 @@
       Qref    (:,:,:) = c0
       Uref    (:,:,:) = c0
 
-      fiso_evap(:,:,:,:) = c0
-      Qref_iso (:,:,:,:) = c0
-      Qa_iso   (:,:,:,:) = c0
-
       end subroutine init_flux_atm
 
 !=======================================================================
@@ -799,7 +768,7 @@
 
       subroutine init_flux_ocn
 
-      use ice_flux_bgc, only: faero_ocn, fiso_ocn, HDO_ocn, H2_16O_ocn, H2_18O_ocn
+      use ice_flux_bgc, only: faero_ocn
 
       character(len=*), parameter :: subname = '(init_flux_ocn)'
 
@@ -812,20 +781,7 @@
       fpond    (:,:,:)   = c0
       fhocn    (:,:,:)   = c0
       fswthru  (:,:,:)   = c0
-      fswthru_vdr  (:,:,:)   = c0
-      fswthru_vdf  (:,:,:)   = c0
-      fswthru_idr  (:,:,:)   = c0
-      fswthru_idf  (:,:,:)   = c0
-
-      faero_ocn (:,:,:,:) = c0
-      fiso_ocn  (:,:,:,:) = c0
-      HDO_ocn     (:,:,:) = c0
-      H2_16O_ocn  (:,:,:) = c0
-      H2_18O_ocn  (:,:,:) = c0
-
-      if (send_i2x_per_cat) then
-         fswthrun_ai(:,:,:,:) = c0
-      endif
+      faero_ocn(:,:,:,:) = c0
 
       end subroutine init_flux_ocn
 
@@ -1015,39 +971,37 @@
                                Tref,     Qref,     &
                                fresh,    fsalt,    &
                                fhocn,    fswthru,  &
-                               fswthru_vdr, fswthru_vdf, &
-                               fswthru_idr, fswthru_idf, &
                                faero_ocn,          &
                                alvdr,    alidr,    &
                                alvdf,    alidf,    &
                                fzsal,    fzsal_g,  &
                                flux_bio,           &
                                fsurf,    fcondtop, &
-                               Uref,     wind,     &
-                               Qref_iso,           &
-                               fiso_evap,fiso_ocn)
-
-      use icepack_intfc, only: icepack_max_iso
+                               Uref,     wind      )
 
       integer (kind=int_kind), intent(in) :: &
           nx_block, ny_block, &    ! block dimensions
           nbtrcr            , &    ! number of biology tracers
           max_aero                 ! maximum number of aerosols
 
-      logical (kind=log_kind), dimension (nx_block,ny_block), intent(in) :: &
+      logical (kind=log_kind), dimension (nx_block,ny_block), &
+          intent(in) :: &
           tmask     ! land/boundary mask, thickness (T-cell)
 
 
-      real (kind=dbl_kind), dimension(nx_block,ny_block), intent(in) :: &
+      real (kind=dbl_kind), dimension(nx_block,ny_block), &
+          intent(in):: &
           aice    , & ! fractional ice area
           Tf      , & ! freezing temperature            (C)
           Tair    , & ! surface air temperature         (K)
           Qa          ! sfc air specific humidity       (kg/kg)
 
-      real (kind=dbl_kind), dimension(nx_block,ny_block), optional, intent(in) :: &
+      real (kind=dbl_kind), dimension(nx_block,ny_block), optional, &
+          intent(in):: &
           wind        ! wind speed                      (m/s)
 
-      real (kind=dbl_kind), dimension(nx_block,ny_block), intent(inout) :: &
+      real (kind=dbl_kind), dimension(nx_block,ny_block), &
+          intent(inout):: &
           strairxT, & ! air/ice zonal  stress           (N/m**2)
           strairyT, & ! air/ice merdnl stress           (N/m**2)
           fsens   , & ! sensible heat flx               (W/m**2)
@@ -1061,40 +1015,34 @@
           fsalt   , & ! salt flux to ocean              (kg/m2/s)
           fhocn   , & ! actual ocn/ice heat flx         (W/m**2)
           fswthru , & ! sw radiation through ice bot    (W/m**2)
-          fswthru_vdr , & ! vis dir sw radiation through ice bot    (W/m**2)
-          fswthru_vdf , & ! vis dif sw radiation through ice bot    (W/m**2)
-          fswthru_idr , & ! nir dir sw radiation through ice bot    (W/m**2)
-          fswthru_idf , & ! nir dif sw radiation through ice bot    (W/m**2)
           alvdr   , & ! visible, direct   (fraction)
           alidr   , & ! near-ir, direct   (fraction)
           alvdf   , & ! visible, diffuse  (fraction)
           alidf       ! near-ir, diffuse  (fraction)
 
-      real (kind=dbl_kind), dimension(nx_block,ny_block), optional, intent(inout) :: &
+      real (kind=dbl_kind), dimension(nx_block,ny_block), optional, &
+          intent(inout):: &
           Uref        ! air speed reference level       (m/s)
 
-      real (kind=dbl_kind), dimension(nx_block,ny_block,nbtrcr), intent(inout) :: &
+      real (kind=dbl_kind), dimension(nx_block,ny_block,nbtrcr), &
+          intent(inout):: &
           flux_bio    ! tracer flux to ocean from biology (mmol/m2/s)
 
-      real (kind=dbl_kind), dimension(nx_block,ny_block,max_aero), intent(inout) :: &
+      real (kind=dbl_kind), dimension(nx_block,ny_block,max_aero), &
+          intent(inout):: &
           faero_ocn   ! aerosol flux to ocean            (kg/m2/s)
 
       ! For hadgem drivers. Assumes either both fields are passed or neither
-      real (kind=dbl_kind), dimension(nx_block,ny_block), intent(inout), optional :: &
+      real (kind=dbl_kind), dimension(nx_block,ny_block), &
+          intent(inout), optional :: &
           fsurf   , & ! surface heat flux               (W/m**2)
           fcondtop    ! top surface conductive flux     (W/m**2)
 
       ! zsalinity fluxes
-      real (kind=dbl_kind), dimension(nx_block,ny_block), intent(inout) :: &
+      real (kind=dbl_kind), dimension(nx_block,ny_block), &
+          intent(inout):: &
           fzsal   , & ! salt flux to ocean with prognositic salinity (kg/m2/s)  
           fzsal_g     ! Gravity drainage salt flux to ocean (kg/m2/s) 
-
-      ! isotopes
-      real (kind=dbl_kind), dimension(nx_block,ny_block,icepack_max_iso), &
-          optional, intent(inout) :: &
-          Qref_iso , & ! isotope air sp hum reference level      (kg/kg)
-          fiso_evap, & ! isotope evaporation (kg/m2/s)
-          fiso_ocn     ! isotope flux to ocean (kg/m2/s)
 
       ! local variables
 
@@ -1114,6 +1062,9 @@
       if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
          file=__FILE__, line=__LINE__)
 
+!DIR$ CONCURRENT !Cray
+!cdir nodep      !NEC
+!ocl novrec      !Fujitsu
       do j = 1, ny_block
       do i = 1, nx_block
          if (tmask(i,j) .and. aice(i,j) > c0) then
@@ -1133,10 +1084,6 @@
             fsalt   (i,j) = fsalt   (i,j) * ar
             fhocn   (i,j) = fhocn   (i,j) * ar
             fswthru (i,j) = fswthru (i,j) * ar
-            fswthru_vdr (i,j) = fswthru_vdr (i,j) * ar
-            fswthru_vdf (i,j) = fswthru_vdf (i,j) * ar
-            fswthru_idr (i,j) = fswthru_idr (i,j) * ar
-            fswthru_idf (i,j) = fswthru_idf (i,j) * ar
             alvdr   (i,j) = alvdr   (i,j) * ar
             alidr   (i,j) = alidr   (i,j) * ar
             alvdf   (i,j) = alvdf   (i,j) * ar
@@ -1145,9 +1092,6 @@
             fzsal_g (i,j) = fzsal_g (i,j) * ar  
             flux_bio (i,j,:) = flux_bio (i,j,:) * ar
             faero_ocn(i,j,:) = faero_ocn(i,j,:) * ar
-            if (present(Qref_iso )) Qref_iso (i,j,:) = Qref_iso (i,j,:) * ar
-            if (present(fiso_evap)) fiso_evap(i,j,:) = fiso_evap(i,j,:) * ar
-            if (present(fiso_ocn )) fiso_ocn (i,j,:) = fiso_ocn (i,j,:) * ar
          else                   ! zero out fluxes
             strairxT(i,j) = c0
             strairyT(i,j) = c0
@@ -1165,10 +1109,6 @@
             fsalt   (i,j) = c0
             fhocn   (i,j) = c0
             fswthru (i,j) = c0
-            fswthru_vdr (i,j) = c0
-            fswthru_vdf (i,j) = c0
-            fswthru_idr (i,j) = c0
-            fswthru_idf (i,j) = c0
             alvdr   (i,j) = c0  ! zero out albedo where ice is absent
             alidr   (i,j) = c0
             alvdf   (i,j) = c0 
@@ -1177,9 +1117,6 @@
             fzsal_g (i,j) = c0 
             flux_bio (i,j,:) = c0
             faero_ocn(i,j,:) = c0
-            if (present(Qref_iso )) Qref_iso (i,j,:) = c0
-            if (present(fiso_evap)) fiso_evap(i,j,:) = c0
-            if (present(fiso_ocn )) fiso_ocn (i,j,:) = c0
          endif                  ! tmask and aice > 0
       enddo                     ! i
       enddo                     ! j
@@ -1187,6 +1124,9 @@
       ! Scale fluxes for history output
       if (present(fsurf) .and. present(fcondtop) ) then 
      
+!DIR$ CONCURRENT !Cray
+!cdir nodep      !NEC
+!ocl novrec      !Fujitsu
         do j = 1, ny_block
         do i = 1, nx_block
            if (tmask(i,j) .and. aice(i,j) > c0) then

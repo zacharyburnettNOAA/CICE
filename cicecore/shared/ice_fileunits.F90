@@ -1,3 +1,4 @@
+!  SVN:$Id: ice_fileunits.F90 1228 2017-05-23 21:33:34Z tcraig $
 !=======================================================================
 !
 !  This module contains an I/O unit manager for tracking, assigning
@@ -33,8 +34,8 @@
       character (len=char_len), public :: &
          diag_type               ! 'stdout' or 'file'
 
-      character (len=char_len), public :: &
-         bfbflag                 ! method for bit-for-bit computations
+      logical (log_kind), public :: &
+         bfbflag                 ! logical for bit-for-bit computations
 
       integer (kind=int_kind), public :: &
          nu_grid       , &  ! grid file
@@ -51,12 +52,6 @@
          nu_restart_lvl, &  ! restart input file for level ice tracers
          nu_dump_pond  , &  ! dump file for restarting melt pond tracer
          nu_restart_pond,&  ! restart input file for melt pond tracer
-         nu_dump_snow  , &  ! dump file for restarting snow redist/metamorph tracers
-         nu_restart_snow,&  ! restart input file for snow redist/metamorph tracers
-         nu_dump_fsd   , &  ! dump file for restarting floe size distribution
-         nu_restart_fsd, &  ! restart input file for floe size distribution
-         nu_dump_iso   , &  ! dump file for restarting isotope tracers
-         nu_restart_iso, &  ! restart input file for isotope tracers
          nu_dump_aero  , &  ! dump file for restarting aerosol tracer
          nu_restart_aero,&  ! restart input file for aerosol tracer
          nu_dump_bgc   , &  ! dump file for restarting bgc
@@ -67,7 +62,8 @@
          nu_restart_eap, &  ! restart input file for eap dynamics
          nu_rst_pointer, &  ! pointer to latest restart file
          nu_history    , &  ! binary history output file
-         nu_hdr             ! header file for binary history output
+         nu_hdr        , &  ! header file for binary history output
+         nu_diag            ! diagnostics output file
 
       character (32), public :: &
          nml_filename = 'ice_in' ! namelist input file name
@@ -76,12 +72,6 @@
          ice_stdin  =  5, & ! reserved unit for standard input
          ice_stdout =  6, & ! reserved unit for standard output
          ice_stderr =  6    ! reserved unit for standard error
-
-      integer (kind=int_kind), public :: &
-         nu_diag = ice_stdout  ! diagnostics output file, unit number may be overwritten
-
-      logical (kind=log_kind), public :: &
-         nu_diag_set = .false. ! flag to indicate whether nu_diag is already set
 
       integer (kind=int_kind), public :: &
          ice_IOUnitsMinUnit = 11, & ! do not use unit numbers below 
@@ -109,14 +99,13 @@
 
          character(len=*),parameter :: subname='(init_fileunits)'
 
-         if (.not.allocated(ice_IOUnitsInUse)) allocate(ice_IOUnitsInUse(ice_IOUnitsMaxUnit))
-         ice_IOUnitsInUse = .false.
+         nu_diag = ice_stdout  ! default
 
+         allocate(ice_IOUnitsInUse(ice_IOUnitsMaxUnit))
+         ice_IOUnitsInUse = .false.
          ice_IOUnitsInUse(ice_stdin)  = .true. ! reserve unit 5
          ice_IOUnitsInUse(ice_stdout) = .true. ! reserve unit 6
          ice_IOUnitsInUse(ice_stderr) = .true.
-         if (nu_diag >= 1 .and. nu_diag <= ice_IOUnitsMaxUnit) &
-            ice_IOUnitsInUse(nu_diag) = .true. ! reserve unit nu_diag
 
          call get_fileunit(nu_grid)
          call get_fileunit(nu_kmt)
@@ -131,12 +120,6 @@
          call get_fileunit(nu_restart_lvl)
          call get_fileunit(nu_dump_pond)
          call get_fileunit(nu_restart_pond)
-         call get_fileunit(nu_dump_snow)
-         call get_fileunit(nu_restart_snow)
-         call get_fileunit(nu_dump_fsd)
-         call get_fileunit(nu_restart_fsd)
-         call get_fileunit(nu_dump_iso)
-         call get_fileunit(nu_restart_iso)
          call get_fileunit(nu_dump_aero)
          call get_fileunit(nu_restart_aero)
          call get_fileunit(nu_dump_bgc)
@@ -222,12 +205,6 @@
          call release_fileunit(nu_restart_lvl)
          call release_fileunit(nu_dump_pond)
          call release_fileunit(nu_restart_pond)
-         call release_fileunit(nu_dump_snow)
-         call release_fileunit(nu_restart_snow)
-         call release_fileunit(nu_dump_fsd)
-         call release_fileunit(nu_restart_fsd)
-         call release_fileunit(nu_dump_iso)
-         call release_fileunit(nu_restart_iso)
          call release_fileunit(nu_dump_aero)
          call release_fileunit(nu_restart_aero)
          call release_fileunit(nu_dump_bgc)

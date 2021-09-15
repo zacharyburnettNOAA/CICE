@@ -1,6 +1,3 @@
-#ifdef ncdf
-#define USE_NETCDF
-#endif
 !|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 
  module ice_domain
@@ -17,11 +14,10 @@
 
    use ice_kinds_mod
    use ice_constants, only: shlat, nhlat
-   use ice_communicate, only: my_task, master_task, get_num_procs, &
-       add_mpi_barriers
+   use ice_communicate, only: my_task, master_task, get_num_procs
    use ice_broadcast, only: broadcast_scalar, broadcast_array
    use ice_blocks, only: block, get_block, create_blocks, nghost, &
-       nblocks_x, nblocks_y, nblocks_tot, nx_block, ny_block, debug_blocks
+       nblocks_x, nblocks_y, nblocks_tot, nx_block, ny_block
    use ice_distribution, only: distrb
    use ice_boundary, only: ice_halo
    use ice_exit, only: abort_ice
@@ -30,7 +26,7 @@
    use icepack_intfc, only: icepack_warnings_flush, icepack_warnings_aborted
    use icepack_intfc, only: icepack_query_parameters
 
-#ifdef USE_NETCDF
+#ifdef ncdf
    use netcdf
 #endif
 
@@ -62,8 +58,7 @@
    logical (kind=log_kind), public :: &
       maskhalo_dyn   , & ! if true, use masked halo updates for dynamics
       maskhalo_remap , & ! if true, use masked halo updates for transport
-      maskhalo_bound , & ! if true, use masked halo updates for bound_state
-      orca_halogrid      ! if true, input fields are haloed as defined by orca grid
+      maskhalo_bound     ! if true, use masked halo updates for bound_state
 
 !-----------------------------------------------------------------------
 !
@@ -133,9 +128,7 @@
                          ns_boundary_type,  &
                          maskhalo_dyn,      &
                          maskhalo_remap,    &
-                         maskhalo_bound,    &
-                         add_mpi_barriers,  &
-                         debug_blocks
+                         maskhalo_bound
 
 !----------------------------------------------------------------------
 !
@@ -153,8 +146,6 @@
    maskhalo_dyn      = .false.     ! if true, use masked halos for dynamics
    maskhalo_remap    = .false.     ! if true, use masked halos for transport
    maskhalo_bound    = .false.     ! if true, use masked halos for bound_state
-   add_mpi_barriers  = .false.     ! if true, throttle communication
-   debug_blocks      = .false.     ! if true, print verbose block information
    max_blocks        = -1           ! max number of blocks per processor
    block_size_x      = -1          ! size of block in first horiz dimension
    block_size_y      = -1          ! size of block in second horiz dimension
@@ -191,13 +182,10 @@
    call broadcast_scalar(maskhalo_dyn,      master_task)
    call broadcast_scalar(maskhalo_remap,    master_task)
    call broadcast_scalar(maskhalo_bound,    master_task)
-   call broadcast_scalar(add_mpi_barriers,  master_task)
-   call broadcast_scalar(debug_blocks,      master_task)
    if (my_task == master_task) then
      if (max_blocks < 1) then
        max_blocks=( ((nx_global-1)/block_size_x + 1) *         &
-                    ((ny_global-1)/block_size_y + 1) - 1) / nprocs + 1
-       max_blocks=max(1,max_blocks)
+                    ((ny_global-1)/block_size_y + 1) ) / nprocs
        write(nu_diag,'(/,a52,i6,/)') &
          '(ice_domain): max_block < 1: max_block estimated to ',max_blocks
      endif
@@ -253,26 +241,32 @@
 
    if (my_task == master_task) then
      write(nu_diag,'(/,a18,/)')'Domain Information'
-     write(nu_diag,'(a,i6)')  '  Horizontal domain: nx = ', nx_global
-     write(nu_diag,'(a,i6)')  '                     ny = ', ny_global
-     write(nu_diag,'(a,i6)')  '  No. of categories: nc = ', ncat
-     write(nu_diag,'(a,i6)')  '  No. of ice layers: ni = ', nilyr
-     write(nu_diag,'(a,i6)')  '  No. of snow layers:ns = ', nslyr
-     write(nu_diag,'(a,i6)')  '  Processors:  total    = ', nprocs
-     write(nu_diag,'(a,a)')   '  Processor shape       = ', trim(processor_shape)
-     write(nu_diag,'(a,a)')   '  Distribution type     = ', trim(distribution_type)
-     write(nu_diag,'(a,a)')   '  Distribution weight   = ', trim(distribution_wght)
-     write(nu_diag,'(a,a)')   '  Distribution wght file= ', trim(distribution_wght_file)
-     write(nu_diag,'(a,a)')   '  ew_boundary_type      = ', trim(ew_boundary_type)
-     write(nu_diag,'(a,a)')   '  ns_boundary_type      = ', trim(ns_boundary_type)
-     write(nu_diag,'(a,l6)')  '  maskhalo_dyn          = ', maskhalo_dyn
-     write(nu_diag,'(a,l6)')  '  maskhalo_remap        = ', maskhalo_remap
-     write(nu_diag,'(a,l6)')  '  maskhalo_bound        = ', maskhalo_bound
-     write(nu_diag,'(a,l6)')  '  add_mpi_barriers      = ', add_mpi_barriers
-     write(nu_diag,'(a,l6)')  '  debug_blocks          = ', debug_blocks
-     write(nu_diag,'(a,2i6)') '  block_size_x,_y       = ', block_size_x, block_size_y
-     write(nu_diag,'(a,i6)')  '  max_blocks            = ', max_blocks
-     write(nu_diag,'(a,i6,/)')'  Number of ghost cells = ', nghost
+     write(nu_diag,'(a26,i6)') '  Horizontal domain: nx = ',nx_global
+     write(nu_diag,'(a26,i6)') '                     ny = ',ny_global
+     write(nu_diag,'(a26,i6)') '  No. of categories: nc = ',ncat
+     write(nu_diag,'(a26,i6)') '  No. of ice layers: ni = ',nilyr
+     write(nu_diag,'(a26,i6)') '  No. of snow layers:ns = ',nslyr
+     write(nu_diag,'(a26,i6)') '  Processors:  total    = ',nprocs
+     write(nu_diag,'(a25,a16)') '  Processor shape:        ', &
+                                  trim(processor_shape)
+     write(nu_diag,'(a25,a16)') '  Distribution type:      ', &
+                                  trim(distribution_type)
+     write(nu_diag,'(a25,a16)') '  Distribution weight:    ', &
+                                  trim(distribution_wght)
+     write(nu_diag,'(a25,a  )') '  Distribution wght file: ', &
+                                  trim(distribution_wght_file)
+     write(nu_diag,'(a25,a16)') '  ew_boundary_type:       ', &
+                                  trim(ew_boundary_type)
+     write(nu_diag,'(a25,a16)') '  ns_boundary_type:       ', &
+                                  trim(ns_boundary_type)
+     write(nu_diag,'(a26,l6)') '  maskhalo_dyn          = ', &
+                                  maskhalo_dyn
+     write(nu_diag,'(a26,l6)') '  maskhalo_remap        = ', &
+                                  maskhalo_remap
+     write(nu_diag,'(a26,l6)') '  maskhalo_bound        = ', &
+                                  maskhalo_bound
+     write(nu_diag,'(a26,i6)') '  max_blocks =            ', max_blocks
+     write(nu_diag,'(a26,i6,/)')'  Number of ghost cells:  ', nghost
    endif
 
 !----------------------------------------------------------------------
@@ -289,7 +283,7 @@
 !  initialized here through calls to the appropriate boundary routines.
 
    use ice_boundary, only: ice_HaloCreate
-   use ice_distribution, only: create_distribution, create_local_block_ids, ice_distributionGet
+   use ice_distribution, only: create_distribution, create_local_block_ids
    use ice_domain_size, only: max_blocks, nx_global, ny_global
 
    real (dbl_kind), dimension(nx_global,ny_global), intent(in) :: &
@@ -313,13 +307,10 @@
    integer (int_kind) :: &
       i,j,n              ,&! dummy loop indices
       ig,jg              ,&! global indices
-      ninfo              ,&! ice_distributionGet check
       work_unit          ,&! size of quantized work unit
-#ifdef USE_NETCDF
       fid                ,&! file id
       varid              ,&! var id
       status             ,&! netcdf return code
-#endif
       tblocks_tmp        ,&! total number of blocks
       nblocks_tmp        ,&! temporary value of nblocks
       nblocks_max          ! max blocks on proc
@@ -329,7 +320,6 @@
       rad_to_deg           ! radians to degrees
 
    integer (int_kind), dimension(:), allocatable :: &
-      blkinfo            ,&! ice_distributionGet check
       nocn               ,&! number of ocean points per block
       work_per_block       ! number of work units per block
 
@@ -355,7 +345,6 @@
       file=__FILE__, line=__LINE__)
 
    if (trim(ns_boundary_type) == 'closed') then
-      call abort_ice(subname//'ERROR: ns_boundary_type = closed not supported')
       allocate(nocn(nblocks_tot))
       nocn = 0
       do n=1,nblocks_tot
@@ -387,14 +376,13 @@
          enddo
          endif
          if (nocn(n) > 0) then
-            write(nu_diag,*) subname,'ns closed, Not enough land cells along ns edge'
-            call abort_ice(subname//'ERROR: Not enough land cells along ns edge for ns closed')
+            print*, 'ice: Not enough land cells along ns edge'
+            call abort_ice(subname//'ERROR: Not enough land cells along ns edge')
          endif
       enddo
       deallocate(nocn)
    endif
    if (trim(ew_boundary_type) == 'closed') then
-      call abort_ice(subname//'ERROR: ew_boundary_type = closed not supported')
       allocate(nocn(nblocks_tot))
       nocn = 0
       do n=1,nblocks_tot
@@ -426,8 +414,8 @@
          enddo
          endif
          if (nocn(n) > 0) then
-            write(nu_diag,*) subname,'ew closed, Not enough land cells along ew edge'
-            call abort_ice(subname//'ERROR: Not enough land cells along ew edge for ew closed')
+            print*, 'ice: Not enough land cells along ew edge'
+            call abort_ice(subname//'ERROR: Not enough land cells along ew edge')
          endif
       enddo
       deallocate(nocn)
@@ -441,7 +429,7 @@
 !----------------------------------------------------------------------
 
    if (distribution_wght == 'latitude') then
-       flat = max(NINT(abs(ULATG*rad_to_deg), int_kind),1)  ! linear function
+       flat = NINT(abs(ULATG*rad_to_deg), int_kind)  ! linear function
    else
        flat = 1
    endif
@@ -452,7 +440,8 @@
       allocate(wght(nx_global,ny_global))
       if (my_task == master_task) then
          ! cannot use ice_read_write due to circular dependency
-#ifdef USE_NETCDF
+#ifdef ncdf
+         write(nu_diag,*) 'read ',trim(distribution_wght_file),minval(wght),maxval(wght)
          status = nf90_open(distribution_wght_file, NF90_NOWRITE, fid)
          if (status /= nf90_noerr) then
             call abort_ice (subname//'ERROR: Cannot open '//trim(distribution_wght_file))
@@ -460,10 +449,8 @@
          status = nf90_inq_varid(fid, 'wght', varid)
          status = nf90_get_var(fid, varid, wght)
          status = nf90_close(fid)
-         write(nu_diag,*) 'read ',trim(distribution_wght_file),minval(wght),maxval(wght)
 #else
-         call abort_ice(subname//'ERROR: USE_NETCDF cpp not defined', &
-             file=__FILE__, line=__LINE__)
+         call abort_ice (subname//'ERROR: distribution_wght file needs ncdf cpp ')
 #endif
       endif
       call broadcast_array(wght, master_task)
@@ -499,12 +486,12 @@
             if (this_block%j_glob(j) > 0) then
                do i=this_block%ilo,this_block%ihi
                   if (this_block%i_glob(i) > 0) then
-                     ig = this_block%i_glob(i)
+	             ig = this_block%i_glob(i)
                      jg = this_block%j_glob(j)
                      if (KMTG(ig,jg) > puny .and.                      &
                         (ULATG(ig,jg) < shlat/rad_to_deg .or.          &
                          ULATG(ig,jg) > nhlat/rad_to_deg) )            & 
-                          nocn(n) = nocn(n) + flat(ig,jg)
+ 	                 nocn(n) = nocn(n) + flat(ig,jg)
                   endif
                end do
             endif
@@ -567,49 +554,6 @@
 
    call create_local_block_ids(blocks_ice, distrb_info)
 
-   ! internal check of icedistributionGet as part of verification process
-   if (debug_blocks) then
-      call ice_distributionGet(distrb_info, nprocs=ninfo)
-      if (ninfo /= distrb_info%nprocs) &
-         call abort_ice(subname//' ice_distributionGet nprocs ERROR', file=__FILE__, line=__LINE__)
-
-      call ice_distributionGet(distrb_info, communicator=ninfo)
-      if (ninfo /= distrb_info%communicator) &
-         call abort_ice(subname//' ice_distributionGet communicator ERROR', file=__FILE__, line=__LINE__)
-
-      call ice_distributionGet(distrb_info, numLocalBlocks=ninfo)
-      if (ninfo /= distrb_info%numLocalBlocks) &
-         call abort_ice(subname//' ice_distributionGet numLocalBlocks ERROR', file=__FILE__, line=__LINE__)
-
-      allocate(blkinfo(ninfo))
-
-      call ice_distributionGet(distrb_info, blockGlobalID = blkinfo)
-      do n = 1, ninfo
-         if (blkinfo(n) /= distrb_info%blockGlobalID(n)) &
-            call abort_ice(subname//' ice_distributionGet blockGlobalID ERROR', file=__FILE__, line=__LINE__)
-      enddo
-
-      deallocate(blkinfo)
-      allocate(blkinfo(nblocks_tot))
-
-      call ice_distributionGet(distrb_info, blockLocation = blkinfo)
-      do n = 1, nblocks_tot
-         if (blkinfo(n) /= distrb_info%blockLocation(n)) &
-            call abort_ice(subname//' ice_distributionGet blockLocation ERROR', file=__FILE__, line=__LINE__)
-      enddo
-
-      call ice_distributionGet(distrb_info, blockLocalID = blkinfo)
-      do n = 1, nblocks_tot
-         if (blkinfo(n) /= distrb_info%blockLocalID(n)) &
-            call abort_ice(subname//' ice_distributionGet blockLocalID ERROR', file=__FILE__, line=__LINE__)
-      enddo
-
-      deallocate(blkinfo)
-
-      if (my_task == master_task) &
-         write(nu_diag,*) subname,' ice_distributionGet checks pass'
-   endif
-
    if (associated(blocks_ice)) then
       nblocks = size(blocks_ice)
    else
@@ -631,7 +575,7 @@
 
    if (nblocks_max > max_blocks) then
      write(outstring,*) &
-         'ERROR: num blocks exceed max: increase max to', nblocks_max
+         'ERROR: ice no. blocks exceed max: increase max to', nblocks_max
      call abort_ice(subname//trim(outstring), &
         file=__FILE__, line=__LINE__)
    else if (nblocks_max < max_blocks) then

@@ -30,7 +30,6 @@
       module ice_transport_remap
 
       use ice_kinds_mod
-      use ice_blocks, only: nx_block, ny_block
       use ice_communicate, only: my_task
       use ice_constants, only: c0, c1, c2, c12, p333, p4, p5, p6, &
           eps13, eps16, &
@@ -255,12 +254,13 @@
       subroutine init_remap
 
       use ice_domain, only: nblocks
+      use ice_blocks, only: nx_block, ny_block
       use ice_grid, only: xav, yav, xxav, yyav
 !                          dxt, dyt, xyav, &
 !                          xxxav, xxyav, xyyav, yyyav
 
       integer (kind=int_kind) ::     &
-        i, j, iblk     ! standard indices
+ 	 i, j, iblk     ! standard indices
 
       character(len=*), parameter :: subname = '(init_remap)'
 
@@ -324,7 +324,7 @@
       use ice_boundary, only: ice_halo, ice_HaloMask, ice_HaloUpdate, &
           ice_HaloDestroy
       use ice_domain, only: nblocks, blocks_ice, halo_info, maskhalo_remap
-      use ice_blocks, only: block, get_block, nghost
+      use ice_blocks, only: block, get_block, nghost, nx_block, ny_block
       use ice_grid, only: HTE, HTN, dxu, dyu,       &
                           tarear, hm,                  &
                           xav, yav, xxav, yyav
@@ -338,14 +338,17 @@
       integer (kind=int_kind), intent(in) :: &
          ntrace       ! number of tracers in use
 
-      real (kind=dbl_kind), intent(in), dimension(nx_block,ny_block,max_blocks) :: &
+      real (kind=dbl_kind), intent(in),       &
+                dimension(nx_block,ny_block,max_blocks) ::           &
          uvel       ,&! x-component of velocity (m/s)
          vvel         ! y-component of velocity (m/s)
 
-      real (kind=dbl_kind), intent(inout), dimension (nx_block,ny_block,0:ncat,max_blocks) :: &
+      real (kind=dbl_kind), intent(inout),     &
+         dimension (nx_block,ny_block,0:ncat,max_blocks) ::          &
          mm           ! mean mass values in each grid cell
 
-      real (kind=dbl_kind), intent(inout), dimension (nx_block,ny_block,ntrace,ncat,max_blocks) :: &
+      real (kind=dbl_kind), intent(inout),     &
+         dimension (nx_block,ny_block,ntrace,ncat,max_blocks) ::     &
          tm           ! mean tracer values in each grid cell
 
     !-------------------------------------------------------------------
@@ -384,7 +387,8 @@
       integer (kind=int_kind), dimension(0:ncat,max_blocks) ::     &
          icellsnc         ! number of cells with ice
 
-      integer (kind=int_kind), dimension(nx_block*ny_block,0:ncat) ::     &
+      integer (kind=int_kind),     &
+         dimension(nx_block*ny_block,0:ncat) ::     &
          indxinc, indxjnc   ! compressed i/j indices
 
       real (kind=dbl_kind), dimension(nx_block,ny_block) ::  &
@@ -402,11 +406,13 @@
       real (kind=dbl_kind), dimension(nx_block,ny_block,0:ncat) :: &
          mmask            ! = 1. if mass is present, = 0. otherwise
 
-      real (kind=dbl_kind), dimension (nx_block,ny_block,ntrace,ncat,max_blocks) :: &
+      real (kind=dbl_kind), &
+         dimension (nx_block,ny_block,ntrace,ncat,max_blocks) :: &
          tc             ,&! tracer values at geometric center of cell
          tx, ty           ! limited derivative of tracer wrt x and y
 
-      real (kind=dbl_kind), dimension (nx_block,ny_block,ntrace,ncat) ::     &
+      real (kind=dbl_kind), &
+         dimension (nx_block,ny_block,ntrace,ncat) ::     &
          tmask            ! = 1. if tracer is present, = 0. otherwise
 
       real (kind=dbl_kind), dimension (nx_block,ny_block,0:ncat) ::     &
@@ -421,18 +427,18 @@
       real (kind=dbl_kind), dimension (nx_block,ny_block,0:nvert,ngroups) ::  &
          xp, yp           ! x and y coordinates of special triangle points
                           ! (need 4 points for triangle integrals)
-      integer (kind=int_kind), dimension (nx_block,ny_block,ngroups) ::     &
+
+      integer (kind=int_kind),     &
+         dimension (nx_block,ny_block,ngroups) ::     &
          iflux          ,&! i index of cell contributing transport
          jflux            ! j index of cell contributing transport
 
       integer (kind=int_kind), dimension(ngroups,max_blocks) ::     &
          icellsng         ! number of cells with ice
 
-      integer (kind=int_kind), dimension(nx_block*ny_block,ngroups) ::     &
+      integer (kind=int_kind),     &
+         dimension(nx_block*ny_block,ngroups) ::     &
          indxing, indxjng ! compressed i/j indices
-
-      integer (kind=int_kind), dimension(nx_block,ny_block,max_blocks) :: &
-         halomask         ! temporary mask for fast halo updates
 
       logical (kind=log_kind) ::     &
          l_stop           ! if true, abort the model
@@ -442,6 +448,9 @@
 
       character (len=char_len) ::   &
          edge             ! 'north' or 'east'
+
+      integer (kind=int_kind), &
+         dimension(nx_block,ny_block,max_blocks) :: halomask
 
       type (ice_halo) :: halo_info_tracer
 
@@ -509,7 +518,6 @@
                                mmask (:,:,0) )
 
          ! ice categories
-
          do n = 1, ncat
 
             call construct_fields(nx_block,            ny_block,            &
@@ -886,20 +894,25 @@
       integer (kind=int_kind), dimension(0:ncat), intent(out) ::     &
            icells         ! number of cells with ice
 
-      integer (kind=int_kind), dimension(nx_block*ny_block,0:ncat), intent(out) :: &
+      integer (kind=int_kind), dimension(nx_block*ny_block,0:ncat),     &
+           intent(out) ::     &
            indxi        ,&! compressed i/j indices
            indxj
 
-      real (kind=dbl_kind), dimension (nx_block,ny_block,0:ncat), intent(in) :: &
+      real (kind=dbl_kind), dimension (nx_block,ny_block,0:ncat),     &
+           intent(in) ::     &
            mm            ! mean ice area in each grid cell
 
-      real (kind=dbl_kind), dimension (nx_block,ny_block,0:ncat), intent(out) :: &
+      real (kind=dbl_kind), dimension (nx_block,ny_block,0:ncat),     &
+           intent(out) ::     &
            mmask         ! = 1. if ice is present, else = 0.
 
-      real (kind=dbl_kind), dimension (nx_block, ny_block, ntrace, ncat), intent(in), optional :: &
+      real (kind=dbl_kind), dimension (nx_block, ny_block, ntrace, ncat),  &
+           intent(in), optional ::     &
            tm            ! mean tracer values in each grid cell
 
-      real (kind=dbl_kind), dimension (nx_block, ny_block, ntrace, ncat), intent(out), optional :: &
+      real (kind=dbl_kind), dimension (nx_block, ny_block, ntrace, ncat),  &
+           intent(out), optional ::     &
            tmask         ! = 1. if tracer is present, else = 0.
 
       ! local variables
@@ -1062,26 +1075,31 @@
          indxi          ,&! compressed i/j indices
          indxj
 
-      real (kind=dbl_kind), dimension (nx_block,ny_block), intent(in) ::   &
+      real (kind=dbl_kind), dimension (nx_block,ny_block),   &
+         intent(in) ::   &
          hm             ,&! land/boundary mask, thickness (T-cell)
          xav,  yav              ,&! mean T-cell values of x, y
          xxav, yyav       ! mean T-cell values of xx, yy
 !         xyav,         ,&! mean T-cell values of xy
 !         xxxav,xxyav,xyyav,yyyav ! mean T-cell values of xxx, xxy, xyy, yyy
 
-      real (kind=dbl_kind), dimension (nx_block,ny_block), intent(in) ::   &
+      real (kind=dbl_kind), dimension (nx_block,ny_block),   &
+         intent(in) ::   &
          mm            ,&! mean value of mass field
          mmask           ! = 1. if ice is present, = 0. otherwise
 
-      real (kind=dbl_kind), dimension (nx_block,ny_block,ntrace), intent(in), optional ::   &
+      real (kind=dbl_kind), dimension (nx_block,ny_block,ntrace),   &
+         intent(in), optional ::   &
          tm             ,&! mean tracer
          tmask            ! = 1. if tracer is present, = 0. otherwise
 
-      real (kind=dbl_kind), dimension (nx_block,ny_block), intent(out) ::   &
+      real (kind=dbl_kind), dimension (nx_block,ny_block),   &
+         intent(out) ::   &
          mc             ,&! mass value at geometric center of cell
          mx, my           ! limited derivative of mass wrt x and y
 
-      real (kind=dbl_kind), dimension (nx_block,ny_block,ntrace), intent(out), optional ::   &
+      real (kind=dbl_kind), dimension (nx_block,ny_block,ntrace),   &
+         intent(out), optional ::   &
          tc             ,&! tracer at geometric center of cell
          tx, ty           ! limited derivative of tracer wrt x and y
 
@@ -1243,6 +1261,9 @@
                enddo
                enddo
 
+!DIR$ CONCURRENT !Cray
+!cdir nodep      !NEC
+!ocl novrec      !Fujitsu
                do ij = 1, icells  ! Note: no tx or ty in ghost cells
                                   ! (bound calls are later)
                   i = indxi(ij)
@@ -1355,7 +1376,8 @@
           ilo,ihi,jlo,jhi ,&! beginning and end of physical domain
           nghost              ! number of ghost cells
 
-      real (kind=dbl_kind), dimension (nx_block,ny_block), intent (in) ::   &
+      real (kind=dbl_kind), dimension (nx_block,ny_block),   &
+           intent (in) ::   &
           phi    ,&! input tracer field (mean values in each grid cell)
           cnx    ,&! x-coordinate of phi relative to geometric center of cell
           cny    ,&! y-coordinate of phi relative to geometric center of cell
@@ -1364,7 +1386,8 @@
           ! For instance, aice has no physical meaning in land cells,
           ! and hice no physical meaning where aice = 0.
 
-      real (kind=dbl_kind), dimension (nx_block,ny_block), intent(out) ::   &
+      real (kind=dbl_kind), dimension (nx_block,ny_block),   &
+          intent(out) ::   &
           gx     ,&! limited x-direction gradient
           gy       ! limited y-direction gradient
 
@@ -1706,20 +1729,24 @@
          dxu            ,&! E-W dimension of U-cell (m)
          dyu              ! N-S dimension of U-cell (m)
 
-      real (kind=dbl_kind), dimension (nx_block,ny_block,0:nvert,ngroups), intent(out) :: &
+      real (kind=dbl_kind), dimension (nx_block,ny_block,0:nvert,ngroups),   &
+         intent(out) ::   &
          xp, yp           ! coordinates of triangle vertices
 
-      real (kind=dbl_kind), dimension (nx_block,ny_block,ngroups), intent(out) :: &
+      real (kind=dbl_kind), dimension (nx_block,ny_block,ngroups),   &
+           intent(out) ::   &
          triarea          ! area of departure triangle
 
-      integer (kind=int_kind), dimension (nx_block,ny_block,ngroups), intent(out) :: &
+      integer (kind=int_kind), dimension (nx_block,ny_block,ngroups),    &
+         intent(out) ::   &
          iflux          ,&! i index of cell contributing transport
          jflux            ! j index of cell contributing transport
 
       integer (kind=int_kind), dimension (ngroups), intent(out) ::   &
          icells           ! number of cells where triarea > puny
 
-      integer (kind=int_kind), dimension (nx_block*ny_block,ngroups), intent(out) :: &
+      integer (kind=int_kind), dimension (nx_block*ny_block,ngroups), &
+         intent(out) ::                                               &
          indxi          ,&! compressed index in i-direction
          indxj            ! compressed index in j-direction
 
@@ -3092,11 +3119,13 @@
       integer (kind=int_kind), dimension (ngroups), intent(in) ::     &
            icells              ! number of cells where triarea > puny
 
-      integer (kind=int_kind), dimension (nx_block*ny_block,ngroups), intent(in) :: &
+      integer (kind=int_kind), dimension (nx_block*ny_block,ngroups),     &
+           intent(in) ::     &
            indxi ,&! compressed index in i-direction
            indxj   ! compressed index in j-direction
 
-      real (kind=dbl_kind), intent(inout), dimension (nx_block, ny_block, 0:nvert, ngroups) :: &
+      real (kind=dbl_kind), intent(inout),   &
+           dimension (nx_block, ny_block, 0:nvert, ngroups) ::   &
            xp, yp          ! coordinates of triangle points
 
       ! local variables
@@ -3125,6 +3154,10 @@
 
       elseif (integral_order == 2) then ! quadratic (3-point formula)
 
+!DIR$ CONCURRENT !Cray
+!cdir nodep      !NEC
+!ocl novrec      !Fujitsu
+
          do ng = 1, ngroups
          do ij = 1, icells(ng)
             i = indxi(ij,ng)
@@ -3152,6 +3185,9 @@
 
       else                      ! cubic (4-point formula)
 
+!DIR$ CONCURRENT !Cray
+!cdir nodep      !NEC
+!ocl novrec      !Fujitsu
          do ng = 1, ngroups
          do ij = 1, icells(ng)
             i = indxi(ij,ng)
@@ -3215,30 +3251,38 @@
       integer (kind=int_kind), dimension (ngroups), intent(in) ::     &
            icells           ! number of cells where triarea > puny
 
-      integer (kind=int_kind), dimension (nx_block*ny_block,ngroups), intent(in) :: &
+      integer (kind=int_kind), dimension (nx_block*ny_block,ngroups),     &
+           intent(in) ::     &
            indxi ,&! compressed index in i-direction
            indxj   ! compressed index in j-direction
 
-      real (kind=dbl_kind), intent(in), dimension (nx_block, ny_block, 0:nvert, ngroups) :: &
+      real (kind=dbl_kind), intent(in),   &
+           dimension (nx_block, ny_block, 0:nvert, ngroups) ::   &
            xp, yp           ! coordinates of triangle points
 
-      real (kind=dbl_kind), intent(in), dimension (nx_block, ny_block, ngroups) :: &
+      real (kind=dbl_kind), intent(in),   &
+           dimension (nx_block, ny_block, ngroups) ::   &
            triarea          ! triangle area
 
-      integer (kind=int_kind), intent(in), dimension (nx_block, ny_block, ngroups) :: &
+      integer (kind=int_kind), intent(in),   &
+           dimension (nx_block, ny_block, ngroups) ::   &
            iflux     ,&
            jflux
 
-      real (kind=dbl_kind), intent(in), dimension (nx_block, ny_block) :: &
+      real (kind=dbl_kind), intent(in),   &
+           dimension (nx_block, ny_block) ::   &
            mc, mx, my
 
-      real (kind=dbl_kind), intent(out), dimension (nx_block, ny_block) :: &
+      real (kind=dbl_kind), intent(out),   &
+           dimension (nx_block, ny_block) ::   &
            mflx
 
-      real (kind=dbl_kind), intent(in), dimension (nx_block, ny_block, ntrace), optional :: &
+      real (kind=dbl_kind), intent(in),   &
+           dimension (nx_block, ny_block, ntrace), optional ::   &
            tc, tx, ty
 
-      real (kind=dbl_kind), intent(out), dimension (nx_block, ny_block, ntrace), optional :: &
+      real (kind=dbl_kind), intent(out),   &
+           dimension (nx_block, ny_block, ntrace), optional ::   &
            mtflx
 
       ! local variables
@@ -3283,6 +3327,9 @@
 
          if (integral_order == 1) then  ! linear (1-point formula)
 
+!DIR$ CONCURRENT !Cray
+!cdir nodep      !NEC
+!ocl novrec      !Fujitsu
             do ij = 1, icells(ng)
                i = indxi(ij,ng)
                j = indxj(ij,ng)
@@ -3308,6 +3355,9 @@
 
          elseif (integral_order == 2) then  ! quadratic (3-point formula)
 
+!DIR$ CONCURRENT !Cray
+!cdir nodep      !NEC
+!ocl novrec      !Fujitsu
             do ij = 1, icells(ng)
                i = indxi(ij,ng)
                j = indxj(ij,ng)
@@ -3352,6 +3402,9 @@
 
          else                   ! cubic (4-point formula)
 
+!DIR$ CONCURRENT !Cray
+!cdir nodep      !NEC
+!ocl novrec      !Fujitsu
             do ij = 1, icells(ng)
                i = indxi(ij,ng)
                j = indxj(ij,ng)
@@ -3409,6 +3462,9 @@
             do nt = 1, ntrace
                if (tracer_type(nt)==1) then ! does not depend on another tracer
 
+!DIR$ CONCURRENT !Cray
+!cdir nodep      !NEC
+!ocl novrec      !Fujitsu
                   do ij = 1, icells(ng)
                      i = indxi(ij,ng)
                      j = indxj(ij,ng)
@@ -3437,6 +3493,9 @@
                elseif (tracer_type(nt)==2) then ! depends on another tracer
                   nt1 = depend(nt)
 
+!DIR$ CONCURRENT !Cray
+!cdir nodep      !NEC
+!ocl novrec      !Fujitsu
                   do ij = 1, icells(ng)
                      i = indxi(ij,ng)
                      j = indxj(ij,ng)
@@ -3456,6 +3515,9 @@
                elseif (tracer_type(nt)==3) then ! depends on two tracers
                   nt1 = depend(nt)
 
+!DIR$ CONCURRENT !Cray
+!cdir nodep      !NEC
+!ocl novrec      !Fujitsu
                   do ij = 1, icells(ng)
                      i = indxi(ij,ng)
                      j = indxj(ij,ng)
@@ -3503,17 +3565,21 @@
          tracer_type       ,&! = 1, 2, or 3 (see comments above)
          depend              ! tracer dependencies (see above)
 
-      real (kind=dbl_kind), dimension (nx_block, ny_block), intent(in) ::   &
+      real (kind=dbl_kind), dimension (nx_block, ny_block),   &
+         intent(in) ::   &
          mflxe, mflxn   ,&! mass transport across east and north cell edges
          tarear           ! 1/tarea
 
-      real (kind=dbl_kind), dimension (nx_block, ny_block), intent(inout) ::   &
+      real (kind=dbl_kind), dimension (nx_block, ny_block),   &
+         intent(inout) ::   &
          mm               ! mass field (mean)
 
-      real (kind=dbl_kind), dimension (nx_block, ny_block, ntrace), intent(in), optional ::   &
+      real (kind=dbl_kind), dimension (nx_block, ny_block, ntrace),   &
+         intent(in), optional ::   &
          mtflxe, mtflxn   ! mass*tracer transport across E and N cell edges
 
-      real (kind=dbl_kind), dimension (nx_block, ny_block, ntrace), intent(inout), optional ::   &
+      real (kind=dbl_kind), dimension (nx_block, ny_block, ntrace),   &
+         intent(inout), optional ::   &
          tm               ! tracer fields
 
       logical (kind=log_kind), intent(inout) ::   &
@@ -3657,6 +3723,9 @@
             elseif (tracer_type(nt)==2) then ! depends on another tracer
                nt1 = depend(nt)
 
+!DIR$ CONCURRENT !Cray
+!cdir nodep      !NEC
+!ocl novrec      !Fujitsu
                do ij = 1, icells
                   i = indxi(ij)
                   j = indxj(ij)
@@ -3674,6 +3743,9 @@
                nt1 = depend(nt)
                nt2 = depend(nt1)
 
+!DIR$ CONCURRENT !Cray
+!cdir nodep      !NEC
+!ocl novrec      !Fujitsu
                do ij = 1, icells
                   i = indxi(ij)
                   j = indxj(ij)

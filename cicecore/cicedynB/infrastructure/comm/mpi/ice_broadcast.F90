@@ -8,15 +8,8 @@
 ! author: Phil Jones, LANL
 ! Oct. 2004: Adapted from POP version by William H. Lipscomb, LANL
 
-#ifndef SERIAL_REMOVE_MPI
-   use mpi   ! MPI Fortran module
-#endif
    use ice_kinds_mod
-#ifdef SERIAL_REMOVE_MPI
-   use ice_communicate, only: MPI_COMM_ICE
-#else
    use ice_communicate, only: mpiR8, mpir4, MPI_COMM_ICE
-#endif
    use ice_exit, only: abort_ice
    use icepack_intfc, only: icepack_warnings_flush, icepack_warnings_aborted
 
@@ -67,6 +60,8 @@
 !  to all other processors. This is a specific instance of the generic
 !  broadcast\_scalar interface.
 
+   include 'mpif.h'  ! MPI Fortran include file
+
    integer (int_kind), intent(in) :: &
       root_pe              ! processor number to broadcast from
 
@@ -84,12 +79,8 @@
 
 !-----------------------------------------------------------------------
 
-#ifdef SERIAL_REMOVE_MPI
-   ! nothing to do
-#else
    call MPI_BCAST(scalar, 1, mpiR8, root_pe, MPI_COMM_ICE, ierr)
    call MPI_BARRIER(MPI_COMM_ICE, ierr)
-#endif
 
 !-----------------------------------------------------------------------
 
@@ -102,6 +93,8 @@ subroutine broadcast_scalar_real(scalar, root_pe)
 !  Broadcasts a scalar real variable from one processor (root_pe)
 !  to all other processors. This is a specific instance of the generic
 !  broadcast\_scalar interface.
+
+   include 'mpif.h'  ! MPI Fortran include file
 
    integer (int_kind), intent(in) :: &
       root_pe              ! processor number to broadcast from
@@ -120,12 +113,8 @@ subroutine broadcast_scalar_real(scalar, root_pe)
 
 !-----------------------------------------------------------------------
 
-#ifdef SERIAL_REMOVE_MPI
-   ! nothing to do
-#else
    call MPI_BCAST(scalar, 1, mpiR4, root_pe, MPI_COMM_ICE, ierr)
    call MPI_BARRIER(MPI_COMM_ICE, ierr)
-#endif
 
 !-----------------------------------------------------------------------
 
@@ -138,6 +127,8 @@ subroutine broadcast_scalar_int(scalar, root_pe)
 !  Broadcasts a scalar integer variable from one processor (root_pe)
 !  to all other processors. This is a specific instance of the generic
 !  broadcast\_scalar interface.
+
+   include 'mpif.h'  ! MPI Fortran include file
 
    integer (int_kind), intent(in) :: &
       root_pe              ! processor number to broadcast from
@@ -156,12 +147,8 @@ subroutine broadcast_scalar_int(scalar, root_pe)
 
 !-----------------------------------------------------------------------
 
-#ifdef SERIAL_REMOVE_MPI
-   ! nothing to do
-#else
    call MPI_BCAST(scalar, 1, MPI_INTEGER, root_pe, MPI_COMM_ICE,ierr)
    call MPI_BARRIER(MPI_COMM_ICE, ierr)
-#endif
 
 !-----------------------------------------------------------------------
 
@@ -174,6 +161,8 @@ subroutine broadcast_scalar_log(scalar, root_pe)
 !  Broadcasts a scalar logical variable from one processor (root_pe)
 !  to all other processors. This is a specific instance of the generic
 !  broadcast\_scalar interface.
+
+   include 'mpif.h'  ! MPI Fortran include file
 
    integer (int_kind), intent(in) :: &
      root_pe              ! processor number to broadcast from
@@ -194,9 +183,6 @@ subroutine broadcast_scalar_log(scalar, root_pe)
 
 !-----------------------------------------------------------------------
 
-#ifdef SERIAL_REMOVE_MPI
-   ! nothing to do
-#else
    if (scalar) then
      itmp = 1
    else
@@ -211,7 +197,6 @@ subroutine broadcast_scalar_log(scalar, root_pe)
    else
      scalar = .false.
    endif
-#endif
 
 !-----------------------------------------------------------------------
 
@@ -224,6 +209,8 @@ subroutine broadcast_scalar_char(scalar, root_pe)
 !  Broadcasts a scalar character variable from one processor (root_pe)
 !  to all other processors. This is a specific instance of the generic
 !  broadcast\_scalar interface.
+
+   include 'mpif.h'  ! MPI Fortran include file
 
    integer (int_kind), intent(in) :: &
      root_pe              ! processor number to broadcast from
@@ -244,14 +231,10 @@ subroutine broadcast_scalar_char(scalar, root_pe)
 
 !-----------------------------------------------------------------------
 
-#ifdef SERIAL_REMOVE_MPI
-   ! nothing to do
-#else
    clength = len(scalar)
 
    call MPI_BCAST(scalar, clength, MPI_CHARACTER, root_pe, MPI_COMM_ICE, ierr)
    call MPI_BARRIER(MPI_COMM_ICE, ierr)
-#endif
 
 !--------------------------------------------------------------------
 
@@ -264,6 +247,8 @@ subroutine broadcast_array_dbl_1d(array, root_pe)
 !  Broadcasts a vector dbl variable from one processor (root_pe)
 !  to all other processors. This is a specific instance of the generic
 !  broadcast\_array interface.
+
+   include 'mpif.h'  ! MPI Fortran include file
 
    integer (int_kind), intent(in) :: &
      root_pe           ! processor number to broadcast from
@@ -284,14 +269,10 @@ subroutine broadcast_array_dbl_1d(array, root_pe)
 
 !-----------------------------------------------------------------------
 
-#ifdef SERIAL_REMOVE_MPI
-   ! nothing to do
-#else
    nelements = size(array)
 
    call MPI_BCAST(array, nelements, mpiR8, root_pe, MPI_COMM_ICE, ierr)
    call MPI_BARRIER(MPI_COMM_ICE, ierr)
-#endif
 
 !-----------------------------------------------------------------------
 
@@ -304,6 +285,8 @@ subroutine broadcast_array_real_1d(array, root_pe)
 !  Broadcasts a real vector from one processor (root_pe)
 !  to all other processors. This is a specific instance of the generic
 !  broadcast\_array interface.
+
+   include 'mpif.h'  ! MPI Fortran include file
 
    integer (int_kind), intent(in) :: &
      root_pe              ! processor number to broadcast from
@@ -324,14 +307,10 @@ subroutine broadcast_array_real_1d(array, root_pe)
 
 !-----------------------------------------------------------------------
 
-#ifdef SERIAL_REMOVE_MPI
-   ! nothing to do
-#else
    nelements = size(array)
 
    call MPI_BCAST(array, nelements, mpiR4, root_pe, MPI_COMM_ICE, ierr)
    call MPI_BARRIER(MPI_COMM_ICE, ierr)
-#endif
 
 !-----------------------------------------------------------------------
 
@@ -344,6 +323,8 @@ subroutine broadcast_array_int_1d(array, root_pe)
 !  Broadcasts an integer vector from one processor (root_pe)
 !  to all other processors. This is a specific instance of the generic
 !  broadcast\_array interface.
+
+   include 'mpif.h'  ! MPI Fortran include file
 
    integer (int_kind), intent(in) :: &
      root_pe              ! processor number to broadcast from
@@ -364,14 +345,10 @@ subroutine broadcast_array_int_1d(array, root_pe)
 
 !-----------------------------------------------------------------------
 
-#ifdef SERIAL_REMOVE_MPI
-   ! nothing to do
-#else
    nelements = size(array)
 
    call MPI_BCAST(array, nelements, MPI_INTEGER, root_pe, MPI_COMM_ICE, ierr)
    call MPI_BARRIER(MPI_COMM_ICE, ierr)
-#endif
 
 !-----------------------------------------------------------------------
 
@@ -384,6 +361,8 @@ subroutine broadcast_array_log_1d(array, root_pe)
 !  Broadcasts a logical vector from one processor (root_pe)
 !  to all other processors. This is a specific instance of the generic
 !  broadcast\_array interface.
+
+   include 'mpif.h'  ! MPI Fortran include file
 
    integer (int_kind), intent(in) :: &
      root_pe              ! processor number to broadcast from
@@ -408,9 +387,6 @@ subroutine broadcast_array_log_1d(array, root_pe)
 
 !-----------------------------------------------------------------------
 
-#ifdef SERIAL_REMOVE_MPI
-   ! nothing to do
-#else
    nelements = size(array)
    allocate(array_int(nelements))
 
@@ -431,7 +407,6 @@ subroutine broadcast_array_log_1d(array, root_pe)
    end where
 
    deallocate(array_int)
-#endif
 
 !-----------------------------------------------------------------------
 
@@ -444,6 +419,8 @@ subroutine broadcast_array_log_1d(array, root_pe)
 !  Broadcasts a dbl 2d array from one processor (root_pe)
 !  to all other processors. This is a specific instance of the generic
 !  broadcast\_array interface.
+
+   include 'mpif.h'  ! MPI Fortran include file
 
    integer (int_kind), intent(in) :: &
      root_pe           ! processor number to broadcast from
@@ -464,14 +441,10 @@ subroutine broadcast_array_log_1d(array, root_pe)
 
 !-----------------------------------------------------------------------
 
-#ifdef SERIAL_REMOVE_MPI
-   ! nothing to do
-#else
    nelements = size(array)
 
    call MPI_BCAST(array, nelements, mpiR8, root_pe, MPI_COMM_ICE, ierr)
    call MPI_BARRIER(MPI_COMM_ICE, ierr)
-#endif
 
 !-----------------------------------------------------------------------
 
@@ -484,6 +457,8 @@ subroutine broadcast_array_log_1d(array, root_pe)
 !  Broadcasts a real 2d array from one processor (root_pe)
 !  to all other processors. This is a specific instance of the generic
 !  broadcast\_array interface.
+
+   include 'mpif.h'  ! MPI Fortran include file
 
    integer (int_kind), intent(in) :: &
      root_pe              ! processor number to broadcast from
@@ -504,14 +479,10 @@ subroutine broadcast_array_log_1d(array, root_pe)
 
 !-----------------------------------------------------------------------
 
-#ifdef SERIAL_REMOVE_MPI
-   ! nothing to do
-#else
    nelements = size(array)
 
    call MPI_BCAST(array, nelements, mpiR4, root_pe, MPI_COMM_ICE, ierr)
    call MPI_BARRIER(MPI_COMM_ICE, ierr)
-#endif
 
 !-----------------------------------------------------------------------
 
@@ -524,6 +495,8 @@ subroutine broadcast_array_log_1d(array, root_pe)
 !  Broadcasts a 2d integer array from one processor (root_pe)
 !  to all other processors. This is a specific instance of the generic
 !  broadcast\_array interface.
+
+   include 'mpif.h'  ! MPI Fortran include file
 
    integer (int_kind), intent(in) :: &
      root_pe              ! processor number to broadcast from
@@ -544,14 +517,10 @@ subroutine broadcast_array_log_1d(array, root_pe)
 
 !-----------------------------------------------------------------------
 
-#ifdef SERIAL_REMOVE_MPI
-   ! nothing to do
-#else
    nelements = size(array)
 
    call MPI_BCAST(array, nelements, MPI_INTEGER, root_pe, MPI_COMM_ICE, ierr)
    call MPI_BARRIER(MPI_COMM_ICE, ierr)
-#endif
 
 !-----------------------------------------------------------------------
 
@@ -564,6 +533,8 @@ subroutine broadcast_array_log_1d(array, root_pe)
 !  Broadcasts a logical 2d array from one processor (root_pe)
 !  to all other processors. This is a specific instance of the generic
 !  broadcast\_array interface.
+
+   include 'mpif.h'  ! MPI Fortran include file
 
    integer (int_kind), intent(in) :: &
      root_pe              ! processor number to broadcast from
@@ -588,9 +559,6 @@ subroutine broadcast_array_log_1d(array, root_pe)
 
 !-----------------------------------------------------------------------
 
-#ifdef SERIAL_REMOVE_MPI
-   ! nothing to do
-#else
    nelements = size(array)
    allocate(array_int(size(array,dim=1),size(array,dim=2)))
 
@@ -611,7 +579,6 @@ subroutine broadcast_array_log_1d(array, root_pe)
    end where
 
    deallocate(array_int)
-#endif
 
 !-----------------------------------------------------------------------
 
@@ -624,6 +591,8 @@ subroutine broadcast_array_log_1d(array, root_pe)
 !  Broadcasts a double 3d array from one processor (root_pe)
 !  to all other processors. This is a specific instance of the generic
 !  broadcast\_array interface.
+
+   include 'mpif.h'  ! MPI Fortran include file
 
    integer (int_kind), intent(in) :: &
      root_pe           ! processor number to broadcast from
@@ -644,14 +613,10 @@ subroutine broadcast_array_log_1d(array, root_pe)
 
 !-----------------------------------------------------------------------
 
-#ifdef SERIAL_REMOVE_MPI
-   ! nothing to do
-#else
    nelements = size(array)
 
    call MPI_BCAST(array, nelements, mpiR8, root_pe, MPI_COMM_ICE, ierr)
    call MPI_BARRIER(MPI_COMM_ICE, ierr)
-#endif
 
 !-----------------------------------------------------------------------
 
@@ -664,6 +629,8 @@ subroutine broadcast_array_log_1d(array, root_pe)
 !  Broadcasts a real 3d array from one processor (root_pe)
 !  to all other processors. This is a specific instance of the generic
 !  broadcast\_array interface.
+
+   include 'mpif.h'  ! MPI Fortran include file
 
    integer (int_kind), intent(in) :: &
      root_pe              ! processor number to broadcast from
@@ -684,14 +651,10 @@ subroutine broadcast_array_log_1d(array, root_pe)
 
 !-----------------------------------------------------------------------
 
-#ifdef SERIAL_REMOVE_MPI
-   ! nothing to do
-#else
    nelements = size(array)
 
    call MPI_BCAST(array, nelements, mpiR4, root_pe, MPI_COMM_ICE, ierr)
    call MPI_BARRIER(MPI_COMM_ICE, ierr)
-#endif
 
 !-----------------------------------------------------------------------
 
@@ -704,6 +667,8 @@ subroutine broadcast_array_log_1d(array, root_pe)
 !  Broadcasts an integer 3d array from one processor (root_pe)
 !  to all other processors. This is a specific instance of the generic
 !  broadcast\_array interface.
+
+   include 'mpif.h'  ! MPI Fortran include file
 
    integer (int_kind), intent(in) :: &
      root_pe              ! processor number to broadcast from
@@ -724,14 +689,10 @@ subroutine broadcast_array_log_1d(array, root_pe)
 
 !-----------------------------------------------------------------------
 
-#ifdef SERIAL_REMOVE_MPI
-   ! nothing to do
-#else
    nelements = size(array)
 
    call MPI_BCAST(array, nelements, MPI_INTEGER, root_pe, MPI_COMM_ICE, ierr)
    call MPI_BARRIER(MPI_COMM_ICE, ierr)
-#endif
 
 !-----------------------------------------------------------------------
 
@@ -744,6 +705,8 @@ subroutine broadcast_array_log_1d(array, root_pe)
 !  Broadcasts a logical 3d array from one processor (root_pe)
 !  to all other processors. This is a specific instance of the generic
 !  broadcast\_array interface.
+
+   include 'mpif.h'  ! MPI Fortran include file
 
    integer (int_kind), intent(in) :: &
      root_pe              ! processor number to broadcast from
@@ -768,9 +731,6 @@ subroutine broadcast_array_log_1d(array, root_pe)
 
 !-----------------------------------------------------------------------
 
-#ifdef SERIAL_REMOVE_MPI
-   ! nothing to do
-#else
    nelements = size(array)
    allocate(array_int(size(array,dim=1), &
                       size(array,dim=2), &
@@ -793,7 +753,6 @@ subroutine broadcast_array_log_1d(array, root_pe)
    end where
 
    deallocate(array_int)
-#endif
 
 !-----------------------------------------------------------------------
 

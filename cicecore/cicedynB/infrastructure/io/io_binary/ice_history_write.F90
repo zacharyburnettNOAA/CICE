@@ -56,15 +56,11 @@
 
       ! local variables
 
-      integer (kind=int_kind) :: k,n,nn,nrec,nbits
+      integer (kind=int_kind) :: i,k,n,nn,nrec,nbits
       character (char_len) :: title
       character (char_len_long) :: ncfile(max_nstrm), hdrfile
 
       integer (kind=int_kind) :: icategory,i_aice
-
-      character (len=4) :: &
-           atype             ! format for output array
-                             ! (real/integer, 4-byte/8-byte)
 
       character (char_len) :: current_date,current_time
       character (len=16) :: c_aice
@@ -73,15 +69,6 @@
       character(len=*), parameter :: subname = '(ice_write_hist)'
 
       diag = .false.
-
-      ! single precision
-      atype = 'rda4'
-      nbits = 32
-      if (history_precision == 8) then
-         ! double precision
-         atype = 'rda8'
-         nbits = 64
-      endif
 
       if (my_task == master_task) then
 
@@ -98,6 +85,7 @@
         !-----------------------------------------------------------------
         ! create history files
         !-----------------------------------------------------------------
+        nbits = 32 ! single precision
         call ice_open(nu_history, ncfile(ns), nbits) ! direct access
         open(nu_hdr,file=hdrfile,form='formatted',status='unknown') ! ascii
 
@@ -136,7 +124,7 @@
         write (nu_hdr, 996) nrec,'tarea','area of T grid cells','m^2'
         write (nu_hdr, *  ) 'History variables: (left column = nrec)'
       endif  ! my_task = master_task
-      call ice_write(nu_history, nrec, tarea, atype, diag)
+      call ice_write(nu_history, nrec, tarea, 'rda4', diag)
 
       do n=1,num_avail_hist_fields_2D
           if (avail_hist_fields(n)%vhistfreq == histfreq(ns)) then
@@ -172,7 +160,7 @@
             endif
           endif
 
-          call ice_write(nu_history, nrec, a2D(:,:,n,:), atype, diag)
+          call ice_write(nu_history, nrec, a2D(:,:,n,:), 'rda4', diag)
 
         endif
       enddo ! num_avail_hist_fields_2D
@@ -195,7 +183,7 @@
             endif
           endif
 
-          call ice_write(nu_history, nrec, a3Dc(:,:,nn,n-n2D,:), atype, diag)
+          call ice_write(nu_history, nrec, a3Dc(:,:,nn,n-n2D,:), 'rda4', diag)
           enddo ! ncat
 
         endif
@@ -219,85 +207,13 @@
             endif
           endif
 
-          call ice_write(nu_history, nrec, a3Dz(:,:,k,n-n3Dccum,:), atype, diag)
+          call ice_write(nu_history, nrec, a3Dz(:,:,k,n-n3Dccum,:), 'rda4', diag)
           enddo ! nzilyr
 
         endif
       enddo ! num_avail_hist_fields_3Dz
 
-      do n = n3Dzcum + 1, n3Dbcum
-          if (avail_hist_fields(n)%vhistfreq == histfreq(ns)) then
-
-          do k = 1, nzilyr
-          nrec = nrec + 1
-          if (my_task == master_task) then
-            write (nu_hdr, 993) nrec,trim(avail_hist_fields(n)%vname), &
-               trim(avail_hist_fields(n)%vdesc),trim(avail_hist_fields(n)%vunit),nn,k
-
-            if (histfreq(ns) == '1' .or. .not. hist_avg) then
-               write (nu_hdr, 996) nrec,trim(avail_hist_fields(n)%vname), &
-                  'time_rep','instantaneous'
-            else
-               write (nu_hdr, 996) nrec,trim(avail_hist_fields(n)%vname), &
-                  'time_rep','averaged'
-            endif
-          endif
-
-          call ice_write(nu_history, nrec, a3Db(:,:,k,n-n3Dzcum,:), atype, diag)
-          enddo ! nzilyr
-
-        endif
-      enddo ! num_avail_hist_fields_3Db
-
-      do n = n3Dbcum + 1, n3Dacum
-          if (avail_hist_fields(n)%vhistfreq == histfreq(ns)) then
-
-          do k = 1, nzilyr
-          nrec = nrec + 1
-          if (my_task == master_task) then
-            write (nu_hdr, 993) nrec,trim(avail_hist_fields(n)%vname), &
-               trim(avail_hist_fields(n)%vdesc),trim(avail_hist_fields(n)%vunit),nn,k
-
-            if (histfreq(ns) == '1' .or. .not. hist_avg) then
-               write (nu_hdr, 996) nrec,trim(avail_hist_fields(n)%vname), &
-                  'time_rep','instantaneous'
-            else
-               write (nu_hdr, 996) nrec,trim(avail_hist_fields(n)%vname), &
-                  'time_rep','averaged'
-            endif
-          endif
-
-          call ice_write(nu_history, nrec, a3Da(:,:,k,n-n3Dbcum,:), atype, diag)
-          enddo ! nzilyr
-
-        endif
-      enddo ! num_avail_hist_fields_3Da
-
-      do n = n3Dacum + 1, n3Dfcum
-          if (avail_hist_fields(n)%vhistfreq == histfreq(ns)) then
-
-          do k = 1, nfsd_hist
-          nrec = nrec + 1
-          if (my_task == master_task) then
-            write (nu_hdr, 993) nrec,trim(avail_hist_fields(n)%vname), &
-               trim(avail_hist_fields(n)%vdesc),trim(avail_hist_fields(n)%vunit),nn,k
-
-            if (histfreq(ns) == '1' .or. .not. hist_avg) then
-               write (nu_hdr, 996) nrec,trim(avail_hist_fields(n)%vname), &
-                  'time_rep','instantaneous'
-            else
-               write (nu_hdr, 996) nrec,trim(avail_hist_fields(n)%vname), &
-                  'time_rep','averaged'
-            endif
-          endif
-
-          call ice_write(nu_history, nrec, a3Df(:,:,k,n-n3Dacum,:), atype, diag)
-          enddo ! nfsd_hist
-
-        endif
-      enddo ! num_avail_hist_fields_3Df
-
-      do n = n3Dfcum + 1, n4Dicum
+      do n = n3Dzcum + 1, n4Dicum
           if (avail_hist_fields(n)%vhistfreq == histfreq(ns)) then
 
           do nn = 1, ncat_hist
@@ -316,64 +232,12 @@
             endif
           endif
 
-          call ice_write(nu_history, nrec, a4Di(:,:,k,nn,n-n3Dfcum,:), atype, diag)
+          call ice_write(nu_history, nrec, a4Di(:,:,k,nn,n-n3Dzcum,:), 'rda4', diag)
           enddo ! nzilyr
           enddo ! ncat_hist
 
         endif
       enddo ! num_avail_hist_fields_4Di
-
-      do n = n4Dicum + 1, n4Dscum
-          if (avail_hist_fields(n)%vhistfreq == histfreq(ns)) then
-
-          do nn = 1, ncat_hist
-          do k = 1, nzslyr
-          nrec = nrec + 1
-          if (my_task == master_task) then
-            write (nu_hdr, 993) nrec,trim(avail_hist_fields(n)%vname), &
-               trim(avail_hist_fields(n)%vdesc),trim(avail_hist_fields(n)%vunit),nn,k
-
-            if (histfreq(ns) == '1' .or. .not. hist_avg) then
-               write (nu_hdr, 996) nrec,trim(avail_hist_fields(n)%vname), &
-                  'time_rep','instantaneous'
-            else
-               write (nu_hdr, 996) nrec,trim(avail_hist_fields(n)%vname), &
-                  'time_rep','averaged'
-            endif
-          endif
-
-          call ice_write(nu_history, nrec, a4Ds(:,:,k,nn,n-n4Dicum,:), atype, diag)
-          enddo ! nzslyr
-          enddo ! ncat_hist
-
-        endif
-      enddo ! num_avail_hist_fields_4Ds
-
-      do n = n4Dscum + 1, n4Dfcum
-          if (avail_hist_fields(n)%vhistfreq == histfreq(ns)) then
-
-          do nn = 1, ncat_hist
-          do k = 1, nfsd_hist
-          nrec = nrec + 1
-          if (my_task == master_task) then
-            write (nu_hdr, 993) nrec,trim(avail_hist_fields(n)%vname), &
-               trim(avail_hist_fields(n)%vdesc),trim(avail_hist_fields(n)%vunit),nn,k
-
-            if (histfreq(ns) == '1' .or. .not. hist_avg) then
-               write (nu_hdr, 996) nrec,trim(avail_hist_fields(n)%vname), &
-                  'time_rep','instantaneous'
-            else
-               write (nu_hdr, 996) nrec,trim(avail_hist_fields(n)%vname), &
-                  'time_rep','averaged'
-            endif
-          endif
-
-          call ice_write(nu_history, nrec, a4Df(:,:,k,nn,n-n4Dscum,:), atype, diag)
-          enddo ! nfsd_hist
-          enddo ! ncat_hist
-
-        endif
-      enddo ! num_avail_hist_fields_4Df
 
 995     format(i3,2x,a,' comment: ',a)
 996     format(i3,2x,a,': ',a,',',2x,a)

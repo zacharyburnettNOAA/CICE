@@ -11,19 +11,17 @@
       use ice_kinds_mod
       use ice_restart_shared, only: &
           restart, restart_ext, restart_dir, restart_file, pointer_file, &
-          runid, runtype, use_restart_time, lenstr
+          runid, runtype, use_restart_time, restart_format, lenstr
       use ice_fileunits, only: nu_diag, nu_rst_pointer
       use ice_fileunits, only: nu_dump, nu_dump_eap, nu_dump_FY, nu_dump_age
       use ice_fileunits, only: nu_dump_lvl, nu_dump_pond, nu_dump_hbrine
-      use ice_fileunits, only: nu_dump_iso, nu_dump_snow
-      use ice_fileunits, only: nu_dump_bgc, nu_dump_aero, nu_dump_fsd
+      use ice_fileunits, only: nu_dump_bgc, nu_dump_aero, nu_dump_age
       use ice_fileunits, only: nu_restart, nu_restart_eap, nu_restart_FY, nu_restart_age 
       use ice_fileunits, only: nu_restart_lvl, nu_restart_pond, nu_restart_hbrine
-      use ice_fileunits, only: nu_restart_bgc, nu_restart_aero, nu_restart_fsd
-      use ice_fileunits, only: nu_restart_iso, nu_restart_snow
+      use ice_fileunits, only: nu_restart_bgc, nu_restart_aero, nu_restart_age
       use ice_exit, only: abort_ice
       use icepack_intfc, only: icepack_query_parameters
-      use icepack_intfc, only: icepack_query_tracer_sizes
+      use icepack_intfc, only: icepack_query_tracer_numbers
       use icepack_intfc, only: icepack_query_tracer_flags
       use icepack_intfc, only: icepack_warnings_flush, icepack_warnings_aborted
 
@@ -31,8 +29,6 @@
       private
       public :: init_restart_write, init_restart_read, &
                 read_restart_field, write_restart_field, final_restart
-
-      real(kind=dbl_kind) :: time_forc = -99.   ! historic now local
 
 !=======================================================================
 
@@ -45,8 +41,7 @@
 
       subroutine init_restart_read(ice_ic)
 
-      use ice_calendar, only: istep0, istep1, timesecs, npt, myear, &
-          set_date_from_timesecs
+      use ice_calendar, only: istep0, istep1, time, time_forc, npt, nyr
       use ice_communicate, only: my_task, master_task
       use ice_dyn_shared, only: kdyn
       use ice_read_write, only: ice_open, ice_open_ext
@@ -56,9 +51,9 @@
       ! local variables
 
       logical (kind=log_kind) :: &
-         solve_zsal, tr_fsd, &
-         tr_iage, tr_FY, tr_lvl, tr_iso, tr_aero, tr_pond_cesm, &
-         tr_pond_topo, tr_pond_lvl, tr_brine, tr_snow
+         solve_zsal, &
+         tr_iage, tr_FY, tr_lvl, tr_aero, tr_pond_cesm, &
+         tr_pond_topo, tr_pond_lvl, tr_brine
 
       character(len=char_len_long) :: &
          filename, filename0
@@ -78,13 +73,12 @@
 
       call icepack_query_parameters( &
          solve_zsal_out=solve_zsal)
-      call icepack_query_tracer_sizes( &
+      call icepack_query_tracer_numbers( &
          nbtrcr_out=nbtrcr)
       call icepack_query_tracer_flags( &
-         tr_iage_out=tr_iage, tr_FY_out=tr_FY, tr_lvl_out=tr_lvl, tr_fsd_out=tr_fsd, &
-         tr_iso_out=tr_iso, tr_aero_out=tr_aero, tr_pond_cesm_out=tr_pond_cesm, &
-         tr_pond_topo_out=tr_pond_topo, tr_pond_lvl_out=tr_pond_lvl, &
-         tr_snow_out=tr_snow, tr_brine_out=tr_brine)
+         tr_iage_out=tr_iage, tr_FY_out=tr_FY, tr_lvl_out=tr_lvl, &
+         tr_aero_out=tr_aero, tr_pond_cesm_out=tr_pond_cesm, &
+         tr_pond_topo_out=tr_pond_topo, tr_pond_lvl_out=tr_pond_lvl, tr_brine_out=tr_brine)
       call icepack_warnings_flush(nu_diag)
       if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
          file=__FILE__, line=__LINE__)
@@ -110,18 +104,17 @@
             call ice_open(nu_restart,trim(filename),0)
          endif
          if (use_restart_time) then
-            read (nu_restart) istep0,timesecs,time_forc,myear
+            read (nu_restart) istep0,time,time_forc,nyr
          else
             read (nu_restart) iignore,rignore,rignore ! use namelist values
          endif
-         write(nu_diag,*) 'Restart read at istep=',istep0,timesecs
+         write(nu_diag,*) 'Restart read at istep=',istep0,time,time_forc
       endif
 
       call broadcast_scalar(istep0,master_task)
-      call broadcast_scalar(timesecs,master_task)
+      call broadcast_scalar(time,master_task)
       call broadcast_scalar(time_forc,master_task)
-      call broadcast_scalar(myear,master_task)
-      call set_date_from_timesecs(timesecs)
+      call broadcast_scalar(nyr,master_task)
       
       istep1 = istep0
 
@@ -143,26 +136,6 @@
                call ice_open(nu_restart_eap,filename,0)
             endif
             read (nu_restart_eap) iignore,rignore,rignore
-            write(nu_diag,*) 'Reading ',filename(1:lenstr(filename))
-         endif
-      endif
-
-      if (tr_fsd) then
-         if (my_task == master_task) then
-            n = index(filename0,trim(restart_file))
-            if (n == 0) call abort_ice(subname//'ERROR: fsd restart: filename discrepancy')
-            string1 = trim(filename0(1:n-1))
-            string2 = trim(filename0(n+lenstr(restart_file):lenstr(filename0)))
-            write(filename,'(a,a,a,a)') &
-               string1(1:lenstr(string1)), &
-               restart_file(1:lenstr(restart_file)),'.fsd', &
-               string2(1:lenstr(string2))
-            if (restart_ext) then
-               call ice_open_ext(nu_restart_fsd,filename,0)
-            else
-               call ice_open(nu_restart_fsd,filename,0)
-            endif
-            read (nu_restart_fsd) iignore,rignore,rignore
             write(nu_diag,*) 'Reading ',filename(1:lenstr(filename))
          endif
       endif
@@ -287,26 +260,6 @@
          endif
       endif
 
-      if (tr_snow) then
-         if (my_task == master_task) then
-            n = index(filename0,trim(restart_file))
-            if (n == 0) call abort_ice(subname//'ERROR: snow restart: filename discrepancy')
-            string1 = trim(filename0(1:n-1))
-            string2 = trim(filename0(n+lenstr(restart_file):lenstr(filename0)))
-            write(filename,'(a,a,a,a)') &
-               string1(1:lenstr(string1)), &
-               restart_file(1:lenstr(restart_file)),'.snow', &
-               string2(1:lenstr(string2))
-            if (restart_ext) then
-               call ice_open_ext(nu_restart_snow,filename,0)
-            else
-               call ice_open(nu_restart_snow,filename,0)
-            endif
-            read (nu_restart_snow) iignore,rignore,rignore
-            write(nu_diag,*) 'Reading ',filename(1:lenstr(filename))
-         endif
-      endif
-
       if (tr_brine) then
          if (my_task == master_task) then
             n = index(filename0,trim(restart_file))
@@ -347,26 +300,6 @@
          endif
       endif
 
-      if (tr_iso) then
-         if (my_task == master_task) then
-            n = index(filename0,trim(restart_file))
-            if (n == 0) call abort_ice(subname//'ERROR: iso restart: filename discrepancy')
-            string1 = trim(filename0(1:n-1))
-            string2 = trim(filename0(n+lenstr(restart_file):lenstr(filename0)))
-            write(filename,'(a,a,a,a)') &
-               string1(1:lenstr(string1)), &
-               restart_file(1:lenstr(restart_file)),'.iso', &
-               string2(1:lenstr(string2))
-            if (restart_ext) then
-               call ice_open_ext(nu_restart_iso,filename,0)
-            else
-               call ice_open(nu_restart_iso,filename,0)
-            endif
-            read (nu_restart_iso) iignore,rignore,rignore
-            write(nu_diag,*) 'Reading ',filename(1:lenstr(filename))
-         endif
-      endif
-
       if (tr_aero) then
          if (my_task == master_task) then
             n = index(filename0,trim(restart_file))
@@ -401,8 +334,8 @@
 
       subroutine init_restart_write(filename_spec)
 
-      use ice_calendar, only: msec, mmonth, mday, myear, istep1, &
-                              timesecs
+      use ice_calendar, only: sec, month, mday, nyr, istep1, &
+                              time, time_forc, year_init
       use ice_communicate, only: my_task, master_task
       use ice_dyn_shared, only: kdyn
       use ice_read_write, only: ice_open, ice_open_ext
@@ -412,12 +345,13 @@
       ! local variables
 
       logical (kind=log_kind) :: &
-         solve_zsal, tr_fsd, &
-         tr_iage, tr_FY, tr_lvl, tr_iso, tr_aero, tr_pond_cesm, &
-         tr_pond_topo, tr_pond_lvl, tr_brine, tr_snow
+         solve_zsal, &
+         tr_iage, tr_FY, tr_lvl, tr_aero, tr_pond_cesm, &
+         tr_pond_topo, tr_pond_lvl, tr_brine
 
       integer (kind=int_kind) :: &
-         nbtrcr                  ! number of bgc tracers
+         nbtrcr, &               ! number of bgc tracers
+         iyear, imonth, iday     ! year, month, day
 
       character(len=char_len_long) :: filename
 
@@ -425,13 +359,12 @@
 
       call icepack_query_parameters( &
          solve_zsal_out=solve_zsal)
-      call icepack_query_tracer_sizes( &
+      call icepack_query_tracer_numbers( &
          nbtrcr_out=nbtrcr)
       call icepack_query_tracer_flags( &
-         tr_iage_out=tr_iage, tr_FY_out=tr_FY, tr_lvl_out=tr_lvl, tr_fsd_out=tr_fsd, &
-         tr_iso_out=tr_iso, tr_aero_out=tr_aero, tr_pond_cesm_out=tr_pond_cesm, &
-         tr_pond_topo_out=tr_pond_topo, tr_pond_lvl_out=tr_pond_lvl, &
-         tr_snow_out=tr_snow, tr_brine_out=tr_brine)
+         tr_iage_out=tr_iage, tr_FY_out=tr_FY, tr_lvl_out=tr_lvl, &
+         tr_aero_out=tr_aero, tr_pond_cesm_out=tr_pond_cesm, &
+         tr_pond_topo_out=tr_pond_topo, tr_pond_lvl_out=tr_pond_lvl, tr_brine_out=tr_brine)
       call icepack_warnings_flush(nu_diag)
       if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
          file=__FILE__, line=__LINE__)
@@ -440,10 +373,14 @@
       if (present(filename_spec)) then
          filename = trim(filename_spec)
       else
+         iyear = nyr + year_init - 1
+         imonth = month
+         iday = mday
+      
          write(filename,'(a,a,a,i4.4,a,i2.2,a,i2.2,a,i5.5)') &
               restart_dir(1:lenstr(restart_dir)), &
               restart_file(1:lenstr(restart_file)),'.', &
-              myear,'-',mmonth,'-',mday,'-',msec
+              iyear,'-',month,'-',mday,'-',sec
       end if
         
       ! write pointer (path/file)
@@ -456,7 +393,7 @@
          else
             call ice_open(nu_dump,filename,0)
          endif
-         write(nu_dump) istep1,timesecs,time_forc,myear
+         write(nu_dump) istep1,time,time_forc,nyr
          write(nu_diag,*) 'Writing ',filename(1:lenstr(filename))
       endif
 
@@ -467,7 +404,7 @@
          write(filename,'(a,a,a,i4.4,a,i2.2,a,i2.2,a,i5.5)') &
               restart_dir(1:lenstr(restart_dir)), &
               restart_file(1:lenstr(restart_file)),'.eap.', &
-              myear,'-',mmonth,'-',mday,'-',msec
+              iyear,'-',month,'-',mday,'-',sec
 
          if (restart_ext) then
             call ice_open_ext(nu_dump_eap,filename,0)
@@ -476,27 +413,7 @@
          endif
 
          if (my_task == master_task) then
-           write(nu_dump_eap) istep1,timesecs,time_forc
-           write(nu_diag,*) 'Writing ',filename(1:lenstr(filename))
-         endif
-
-      endif
-
-      if (tr_fsd) then
-
-         write(filename,'(a,a,a,i4.4,a,i2.2,a,i2.2,a,i5.5)') &
-              restart_dir(1:lenstr(restart_dir)), &
-              restart_file(1:lenstr(restart_file)),'.fsd.', &
-              myear,'-',mmonth,'-',mday,'-',msec
-
-         if (restart_ext) then
-            call ice_open_ext(nu_dump_fsd,filename,0)
-         else
-            call ice_open(nu_dump_fsd,filename,0)
-         endif
-
-         if (my_task == master_task) then
-           write(nu_dump_fsd) istep1,timesecs,time_forc
+           write(nu_dump_eap) istep1,time,time_forc
            write(nu_diag,*) 'Writing ',filename(1:lenstr(filename))
          endif
 
@@ -507,7 +424,7 @@
          write(filename,'(a,a,a,i4.4,a,i2.2,a,i2.2,a,i5.5)') &
               restart_dir(1:lenstr(restart_dir)), &
               restart_file(1:lenstr(restart_file)),'.FY.', &
-              myear,'-',mmonth,'-',mday,'-',msec
+              iyear,'-',month,'-',mday,'-',sec
 
          if (restart_ext) then
             call ice_open_ext(nu_dump_FY,filename,0)
@@ -516,7 +433,7 @@
          endif
 
          if (my_task == master_task) then
-           write(nu_dump_FY) istep1,timesecs,time_forc
+           write(nu_dump_FY) istep1,time,time_forc
            write(nu_diag,*) 'Writing ',filename(1:lenstr(filename))
          endif
 
@@ -527,7 +444,7 @@
          write(filename,'(a,a,a,i4.4,a,i2.2,a,i2.2,a,i5.5)') &
               restart_dir(1:lenstr(restart_dir)), &
               restart_file(1:lenstr(restart_file)),'.iage.', &
-              myear,'-',mmonth,'-',mday,'-',msec
+              iyear,'-',month,'-',mday,'-',sec
 
          if (restart_ext) then
             call ice_open_ext(nu_dump_age,filename,0)
@@ -536,7 +453,7 @@
          endif
 
          if (my_task == master_task) then
-           write(nu_dump_age) istep1,timesecs,time_forc
+           write(nu_dump_age) istep1,time,time_forc
            write(nu_diag,*) 'Writing ',filename(1:lenstr(filename))
          endif
 
@@ -547,7 +464,7 @@
          write(filename,'(a,a,a,i4.4,a,i2.2,a,i2.2,a,i5.5)') &
               restart_dir(1:lenstr(restart_dir)), &
               restart_file(1:lenstr(restart_file)),'.lvl.', &
-              myear,'-',mmonth,'-',mday,'-',msec
+              iyear,'-',month,'-',mday,'-',sec
 
          if (restart_ext) then
             call ice_open_ext(nu_dump_lvl,filename,0)
@@ -556,7 +473,7 @@
          endif
 
          if (my_task == master_task) then
-           write(nu_dump_lvl) istep1,timesecs,time_forc
+           write(nu_dump_lvl) istep1,time,time_forc
            write(nu_diag,*) 'Writing ',filename(1:lenstr(filename))
          endif
 
@@ -567,7 +484,7 @@
          write(filename,'(a,a,a,i4.4,a,i2.2,a,i2.2,a,i5.5)') &
               restart_dir(1:lenstr(restart_dir)), &
               restart_file(1:lenstr(restart_file)),'.pond_cesm.', &
-              myear,'-',mmonth,'-',mday,'-',msec
+              iyear,'-',month,'-',mday,'-',sec
 
          if (restart_ext) then
             call ice_open_ext(nu_dump_pond,filename,0)
@@ -576,7 +493,7 @@
          endif
 
          if (my_task == master_task) then
-           write(nu_dump_pond) istep1,timesecs,time_forc
+           write(nu_dump_pond) istep1,time,time_forc
            write(nu_diag,*) 'Writing ',filename(1:lenstr(filename))
          endif
 
@@ -587,7 +504,7 @@
          write(filename,'(a,a,a,i4.4,a,i2.2,a,i2.2,a,i5.5)') &
               restart_dir(1:lenstr(restart_dir)), &
               restart_file(1:lenstr(restart_file)),'.pond_lvl.', &
-              myear,'-',mmonth,'-',mday,'-',msec
+              iyear,'-',month,'-',mday,'-',sec
 
          if (restart_ext) then
             call ice_open_ext(nu_dump_pond,filename,0)
@@ -596,7 +513,7 @@
          endif
 
          if (my_task == master_task) then
-           write(nu_dump_pond) istep1,timesecs,time_forc
+           write(nu_dump_pond) istep1,time,time_forc
            write(nu_diag,*) 'Writing ',filename(1:lenstr(filename))
          endif
 
@@ -607,7 +524,7 @@
          write(filename,'(a,a,a,i4.4,a,i2.2,a,i2.2,a,i5.5)') &
               restart_dir(1:lenstr(restart_dir)), &
               restart_file(1:lenstr(restart_file)),'.pond_topo.', &
-              myear,'-',mmonth,'-',mday,'-',msec
+              iyear,'-',month,'-',mday,'-',sec
 
          if (restart_ext) then
             call ice_open_ext(nu_dump_pond,filename,0)
@@ -616,27 +533,7 @@
          endif
 
          if (my_task == master_task) then
-           write(nu_dump_pond) istep1,timesecs,time_forc
-           write(nu_diag,*) 'Writing ',filename(1:lenstr(filename))
-         endif
-
-      endif
-
-      if (tr_snow) then
-
-         write(filename,'(a,a,a,i4.4,a,i2.2,a,i2.2,a,i5.5)') &
-              restart_dir(1:lenstr(restart_dir)), &
-              restart_file(1:lenstr(restart_file)),'.snow.', &
-              myear,'-',mmonth,'-',mday,'-',msec
-
-         if (restart_ext) then
-            call ice_open_ext(nu_dump_snow,filename,0)
-         else
-            call ice_open(nu_dump_snow,filename,0)
-         endif
-
-         if (my_task == master_task) then
-           write(nu_dump_snow) istep1,timesecs,time_forc
+           write(nu_dump_pond) istep1,time,time_forc
            write(nu_diag,*) 'Writing ',filename(1:lenstr(filename))
          endif
 
@@ -647,7 +544,7 @@
          write(filename,'(a,a,a,i4.4,a,i2.2,a,i2.2,a,i5.5)') &
               restart_dir(1:lenstr(restart_dir)), &
               restart_file(1:lenstr(restart_file)),'.brine.', &
-              myear,'-',mmonth,'-',mday,'-',msec
+              iyear,'-',month,'-',mday,'-',sec
 
          if (restart_ext) then
             call ice_open_ext(nu_dump_hbrine,filename,0)
@@ -656,7 +553,7 @@
          endif
 
          if (my_task == master_task) then
-           write(nu_dump_hbrine) istep1,timesecs,time_forc
+           write(nu_dump_hbrine) istep1,time,time_forc
            write(nu_diag,*) 'Writing ',filename(1:lenstr(filename))
          endif
 
@@ -667,7 +564,7 @@
          write(filename,'(a,a,a,i4.4,a,i2.2,a,i2.2,a,i5.5)') &
               restart_dir(1:lenstr(restart_dir)), &
               restart_file(1:lenstr(restart_file)),'.bgc.', &
-              myear,'-',mmonth,'-',mday,'-',msec
+              iyear,'-',month,'-',mday,'-',sec
 
          if (restart_ext) then
             call ice_open_ext(nu_dump_bgc,filename,0)
@@ -676,29 +573,9 @@
          endif
 
          if (my_task == master_task) then
-           write(nu_dump_bgc) istep1,timesecs,time_forc
+           write(nu_dump_bgc) istep1,time,time_forc
            write(nu_diag,*) 'Writing ',filename(1:lenstr(filename))
          endif
-      endif
-
-      if (tr_iso) then
-
-         write(filename,'(a,a,a,i4.4,a,i2.2,a,i2.2,a,i5.5)') &
-              restart_dir(1:lenstr(restart_dir)), &
-              restart_file(1:lenstr(restart_file)),'.iso.', &
-              myear,'-',mmonth,'-',mday,'-',msec
-
-         if (restart_ext) then
-            call ice_open_ext(nu_dump_iso,filename,0)
-         else
-            call ice_open(nu_dump_iso,filename,0)
-         endif
-
-         if (my_task == master_task) then
-           write(nu_dump_iso) istep1,timesecs,time_forc
-           write(nu_diag,*) 'Writing ',filename(1:lenstr(filename))
-         endif
-
       endif
 
       if (tr_aero) then
@@ -706,7 +583,7 @@
          write(filename,'(a,a,a,i4.4,a,i2.2,a,i2.2,a,i5.5)') &
               restart_dir(1:lenstr(restart_dir)), &
               restart_file(1:lenstr(restart_file)),'.aero.', &
-              myear,'-',mmonth,'-',mday,'-',msec
+              iyear,'-',month,'-',mday,'-',sec
 
          if (restart_ext) then
             call ice_open_ext(nu_dump_aero,filename,0)
@@ -715,7 +592,7 @@
          endif
 
          if (my_task == master_task) then
-           write(nu_dump_aero) istep1,timesecs,time_forc
+           write(nu_dump_aero) istep1,time,time_forc
            write(nu_diag,*) 'Writing ',filename(1:lenstr(filename))
          endif
 
@@ -740,7 +617,8 @@
            ndim3         , & ! third dimension
            nrec              ! record number (0 for sequential access)
 
-      real (kind=dbl_kind), dimension(nx_block,ny_block,ndim3,max_blocks), intent(inout) :: &
+      real (kind=dbl_kind), dimension(nx_block,ny_block,ndim3,max_blocks), &
+           intent(inout) :: &
            work              ! input array (real, 8-byte)
 
       character (len=4), intent(in) :: &
@@ -759,10 +637,12 @@
       ! local variables
 
       integer (kind=int_kind) :: &
-           n                 ! number of dimensions for variable
+        n,     &      ! number of dimensions for variable
+        varid, &      ! variable id
+        status        ! status variable from netCDF routine
 
       real (kind=dbl_kind), dimension(nx_block,ny_block,max_blocks) :: &
-           work2             ! input array (real, 8-byte)
+           work2              ! input array (real, 8-byte)
 
       character(len=*), parameter :: subname = '(read_restart_field)'
 
@@ -805,7 +685,8 @@
            ndim3         , & ! third dimension
            nrec              ! record number (0 for sequential access)
 
-      real (kind=dbl_kind), dimension(nx_block,ny_block,ndim3,max_blocks), intent(in) :: &
+      real (kind=dbl_kind), dimension(nx_block,ny_block,ndim3,max_blocks), &
+           intent(in) :: &
            work              ! input array (real, 8-byte)
 
       character (len=4), intent(in) :: &
@@ -820,10 +701,12 @@
       ! local variables
 
       integer (kind=int_kind) :: &
-           n                 ! dimension counter
+        n,     &      ! dimension counter
+        varid, &      ! variable id
+        status        ! status variable from netCDF routine
 
       real (kind=dbl_kind), dimension(nx_block,ny_block,max_blocks) :: &
-           work2             ! input array (real, 8-byte)
+           work2              ! input array (real, 8-byte)
 
       character(len=*), parameter :: subname = '(write_restart_field)'
 
@@ -845,28 +728,28 @@
 
       subroutine final_restart()
 
-      use ice_calendar, only: istep1, timesecs
+      use ice_calendar, only: istep1, time, time_forc
       use ice_communicate, only: my_task, master_task
 
       logical (kind=log_kind) :: &
          solve_zsal, &
-         tr_iage, tr_FY, tr_lvl, tr_iso, tr_aero, tr_pond_cesm, &
-         tr_pond_topo, tr_pond_lvl, tr_brine, tr_snow
+         tr_iage, tr_FY, tr_lvl, tr_aero, tr_pond_cesm, &
+         tr_pond_topo, tr_pond_lvl, tr_brine
 
       integer (kind=int_kind) :: &
-         nbtrcr               ! number of bgc tracers
+         nbtrcr, &               ! number of bgc tracers
+         status
 
       character(len=*), parameter :: subname = '(final_restart)'
 
       call icepack_query_parameters( &
          solve_zsal_out=solve_zsal)
-      call icepack_query_tracer_sizes( &
+      call icepack_query_tracer_numbers( &
          nbtrcr_out=nbtrcr)
       call icepack_query_tracer_flags( &
          tr_iage_out=tr_iage, tr_FY_out=tr_FY, tr_lvl_out=tr_lvl, &
-         tr_iso_out=tr_iso, tr_aero_out=tr_aero, tr_pond_cesm_out=tr_pond_cesm, &
-         tr_pond_topo_out=tr_pond_topo, tr_pond_lvl_out=tr_pond_lvl, &
-         tr_snow_out=tr_snow, tr_brine_out=tr_brine)
+         tr_aero_out=tr_aero, tr_pond_cesm_out=tr_pond_cesm, &
+         tr_pond_topo_out=tr_pond_topo, tr_pond_lvl_out=tr_pond_lvl, tr_brine_out=tr_brine)
       call icepack_warnings_flush(nu_diag)
       if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
          file=__FILE__, line=__LINE__)
@@ -874,7 +757,6 @@
       if (my_task == master_task) then
          close(nu_dump)
 
-         if (tr_iso)       close(nu_dump_iso)
          if (tr_aero)      close(nu_dump_aero)
          if (tr_iage)      close(nu_dump_age)
          if (tr_FY)        close(nu_dump_FY)
@@ -882,12 +764,11 @@
          if (tr_pond_cesm) close(nu_dump_pond)
          if (tr_pond_lvl)  close(nu_dump_pond)
          if (tr_pond_topo) close(nu_dump_pond)
-         if (tr_snow)      close(nu_dump_snow)
          if (tr_brine)     close(nu_dump_hbrine)
          if (solve_zsal .or. nbtrcr > 0) &
                            close(nu_dump_bgc)
 
-         write(nu_diag,*) 'Restart read/written ',istep1,timesecs
+         write(nu_diag,*) 'Restart read/written ',istep1,time,time_forc
       endif
 
       end subroutine final_restart

@@ -12,7 +12,7 @@
    use ice_kinds_mod
    use ice_domain_size, only: max_blocks
    use ice_communicate, only: my_task, master_task, create_communicator
-   use ice_blocks, only: nblocks_x, nblocks_y, nblocks_tot, debug_blocks
+   use ice_blocks, only: nblocks_x, nblocks_y, nblocks_tot
    use ice_exit, only: abort_ice
    use ice_fileunits, only: nu_diag
 
@@ -118,7 +118,8 @@
 
    case('spacecurve')
 
-      create_distribution = create_distrb_spacecurve(nprocs, work_per_block)
+      create_distribution = create_distrb_spacecurve(nprocs, &
+                                                   work_per_block)
 
    case default
 
@@ -154,6 +155,8 @@
    integer (int_kind) :: &
       n, bcount              ! dummy counters
 
+   logical (log_kind) :: dbug
+
    character(len=*),parameter :: subname='(create_local_block_ids)'
 
 !-----------------------------------------------------------------------
@@ -176,14 +179,15 @@
 !
 !-----------------------------------------------------------------------
 
+!   dbug = .true.
+   dbug = .false.
    if (bcount > 0) then
       do n=1,size(distribution%blockLocation)
          if (distribution%blockLocation(n) == my_task+1) then
             block_ids(distribution%blockLocalID(n)) = n
 
-            if (debug_blocks .and. my_task == master_task) then
-               write(nu_diag,'(2a,3i8)') &
-                             subname,' block id, proc, local_block: ', &
+            if (dbug) then
+            write(nu_diag,*) subname,'block id, proc, local_block: ', &
                              block_ids(distribution%blockLocalID(n)), &
                              distribution%blockLocation(n), &
                              distribution%blockLocalID(n)
@@ -360,7 +364,7 @@
 !
 !----------------------------------------------------------------------
 
-   distribution%nprocs         = 0
+   distribution%nprocs       = 0
    distribution%communicator   = 0
    distribution%numLocalBlocks = 0
 
@@ -373,9 +377,6 @@
    deallocate(distribution%blockLocation, stat=istat)
    deallocate(distribution%blockLocalID , stat=istat)
    deallocate(distribution%blockGlobalID, stat=istat)
-   deallocate(distribution%blockCnt , stat=istat)
-   deallocate(distribution%blockindex , stat=istat)
-
 
 !-----------------------------------------------------------------------
 
@@ -399,7 +400,7 @@
          numLocalBlocks      ! number of blocks distributed to this
                              !   local processor
 
-      integer (int_kind), dimension(:), optional :: &
+      integer (int_kind), dimension(:), pointer, optional :: &
          blockLocation     ,&! processor location for all blocks
          blockLocalID      ,&! local  block id for all blocks
          blockGlobalID       ! global block id for each local block
@@ -419,7 +420,7 @@
 
    if (present(blockLocation)) then
       if (associated(distribution%blockLocation)) then
-         blockLocation = distribution%blockLocation
+         blockLocation => distribution%blockLocation
       else
          call abort_ice(subname//'ERROR: blockLocation not allocated')
          return
@@ -572,11 +573,7 @@
       nprocsX,             &! num of procs in x for global domain
       nprocsY,             &! num of procs in y for global domain
       numBlocksXPerProc,     &! num of blocks per processor in x
-      numBlocksYPerProc,     &! num of blocks per processor in y
-      numBlocksPerProc        ! required number of blocks per processor
-
-   character(len=char_len) :: &
-      numBlocksPerProc_str    ! required number of blocks per processor (as string)
+      numBlocksYPerProc       ! num of blocks per processor in y
 
    character(len=*),parameter :: subname='(create_distrb_cart)'
 
@@ -614,12 +611,6 @@
       return
    endif
 
-   allocate (newDistrb%blockCnt(nprocs))
-   newDistrb%blockCnt(:) = 0
-
-   allocate(newDistrb%blockIndex(nprocs,max_blocks))
-   newDistrb%blockIndex(:,:) = 0
-
 !----------------------------------------------------------------------
 !
 !  distribute blocks linearly across processors in each direction
@@ -628,14 +619,6 @@
 
    numBlocksXPerProc = (nblocks_x-1)/nprocsX + 1
    numBlocksYPerProc = (nblocks_y-1)/nprocsY + 1
-
-   ! Check if max_blocks is too small
-   numBlocksPerProc = numBlocksXPerProc * numBlocksYPerProc
-   if (numBlocksPerProc > max_blocks) then
-      write(numBlocksPerProc_str, '(i2)') numBlocksPerProc
-      call abort_ice(subname//'ERROR: max_blocks too small (need at least '//trim(numBlocksPerProc_str)//')')
-      return
-   endif
 
    do j=1,nprocsY
    do i=1,nprocsX
@@ -657,8 +640,6 @@
             localID = localID + 1
             newDistrb%blockLocation(globalID) = processor
             newDistrb%blockLocalID (globalID) = localID
-            newDistrb%blockCnt(processor) = newDistrb%blockCnt(processor) + 1
-            newDistrb%blockIndex(processor,localID) = globalID
          else  ! no work - eliminate block from distribution
             newDistrb%blockLocation(globalID) = 0
             newDistrb%blockLocalID (globalID) = 0
@@ -795,8 +776,6 @@
    maxWork = maxval(workPerBlock)
 
    if (numOcnBlocks <= 2*nprocs) then
-      if (my_task == master_task) &
-         write(nu_diag,*) subname,' 1d rake on entire distribution'
 
       allocate(priority(nblocks_tot), stat=istat)
       if (istat > 0) then
@@ -818,7 +797,7 @@
       end do
       end do
 
-      allocate(workTmp(nprocs), procTmp(nprocs), stat=istat)
+      allocate(workTmp(nblocks_tot), procTmp(nblocks_tot), stat=istat)
       if (istat > 0) then
          call abort_ice( &
             'create_distrb_rake: error allocating procTmp')
@@ -852,8 +831,6 @@
 !----------------------------------------------------------------------
 
    else
-      if (my_task == master_task) &
-         write(nu_diag,*) subname,' rake in each direction'
 
       call proc_decomposition(dist%nprocs, nprocsX, nprocsY)
 
@@ -989,12 +966,6 @@
       return
    endif
 
-   allocate (newDistrb%blockCnt(nprocs))
-   newDistrb%blockCnt(:) = 0
-
-   allocate(newDistrb%blockIndex(nprocs,max_blocks))
-   newDistrb%blockIndex(:,:) = 0
-
    allocate(procTmp(nprocs), stat=istat)
    if (istat > 0) then
       call abort_ice( &
@@ -1009,18 +980,12 @@
 
       if (pid > 0) then
          procTmp(pid) = procTmp(pid) + 1
-         if (procTmp(pid) > max_blocks) then
-            call abort_ice(subname//'ERROR: max_blocks too small')
-            return
-         endif
          newDistrb%blockLocalID (n) = procTmp(pid)
-         newDistrb%blockIndex(pid,procTmp(pid)) = n
       else
          newDistrb%blockLocalID (n) = 0
       endif
    end do
 
-   newDistrb%blockCnt(:) = procTmp(:)
    newDistrb%numLocalBlocks = procTmp(my_task+1)
 
    if (minval(procTmp) < 1) then
@@ -1430,7 +1395,7 @@
  function create_distrb_wghtfile(nprocs, workPerBlock) result(newDistrb)
 
 !  This function creates a distribution of blocks across processors
-!  using a simple wghtfile algorithm. Meant for prescribed ice or
+!  using a simple wghtfile algorithm. Mean for prescribed ice or
 !  standalone CAM mode.
 
    integer (int_kind), intent(in) :: &
@@ -2111,6 +2076,8 @@
         ii,extra,tmp1,    &! loop tempories used for
         s1,ig              ! partitioning curve
 
+   logical, parameter :: Debug = .FALSE.
+
    type (factor_t) :: xdim,ydim
 
    integer (int_kind) :: it,jj,i2,j2
@@ -2179,12 +2146,6 @@
    dist%blockLocation=0
    dist%blockLocalID =0
 
-   allocate (dist%blockCnt(nprocs))
-   dist%blockCnt(:) = 0
-
-   allocate(dist%blockIndex(nprocs,max_blocks))
-   dist%blockIndex(:,:) = 0
-
    !----------------------------------------------------------------------
    !  Create the array to hold the SFC and indices into it
    !----------------------------------------------------------------------
@@ -2204,9 +2165,9 @@
 
    call GenSpaceCurve(Mesh)
    Mesh = Mesh + 1 ! make it 1-based indexing
-!   if (debug_blocks) then
-!     if (my_task == master_task) call PrintCurve(Mesh)
-!   endif
+   if(Debug) then
+     if(my_task ==0) call PrintCurve(Mesh)
+   endif
 
    !-----------------------------------------------
    ! Reindex the SFC to address internal sub-blocks
@@ -2253,8 +2214,8 @@
       endif
    enddo
    nblocks=ii
-   if (debug_blocks) then
-     if (my_task == master_task) call PrintCurve(Mesh3)
+   if(Debug) then
+     if(my_task==0) call PrintCurve(Mesh3)
    endif
 
    !----------------------------------------------------
@@ -2273,8 +2234,8 @@
    !
    ! First region gets nblocksL+1 blocks per partition
    ! Second region gets nblocksL blocks per partition
-!   if(debug_blocks) write(nu_diag,*) 'nprocs,extra,nblocks,nblocksL,s1: ', &
-!                nprocs,extra,nblocks,nblocksL,s1
+   if(Debug) print *,'nprocs,extra,nblocks,nblocksL,s1: ', &
+                nprocs,extra,nblocks,nblocksL,s1
 
    !-----------------------------------------------------------
    ! Use the SFC to partition the blocks across processors
@@ -2319,19 +2280,13 @@
 
       if(pid>0) then
         proc_tmp(pid) = proc_tmp(pid) + 1
-        if (proc_tmp(pid) > max_blocks) then
-            call abort_ice(subname//'ERROR: max_blocks too small')
-            return
-         endif
         dist%blockLocalID(n) = proc_tmp(pid)
-        dist%blockIndex(pid,proc_tmp(pid)) = n
       else
         dist%blockLocalID(n) = 0
       endif
    enddo
 
    dist%numLocalBlocks = proc_tmp(my_task+1)
-   dist%blockCnt(:) = proc_tmp(:)
 
    if (dist%numLocalBlocks > 0) then
       allocate (dist%blockGlobalID(dist%numLocalBlocks))
@@ -2345,11 +2300,11 @@
       endif
    enddo
 
-!   if (debug_blocks) then
-!      if (my_task == master_task) write(nu_diag,*) 'dist%blockLocation:= ',dist%blockLocation
-!      write(nu_diag,*) 'IAM: ',my_task,' SpaceCurve: Number of blocks {total,local} :=', &
-!                nblocks_tot,nblocks,proc_tmp(my_task+1)
-!   endif
+   if(Debug) then
+      if(my_task==0) print *,'dist%blockLocation:= ',dist%blockLocation
+      print *,'IAM: ',my_task,' SpaceCurve: Number of blocks {total,local} :=', &
+                nblocks_tot,nblocks,proc_tmp(my_task+1)
+   endif
    !---------------------------------
    ! Deallocate temporary arrays
    !---------------------------------

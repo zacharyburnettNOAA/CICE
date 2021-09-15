@@ -23,13 +23,13 @@
           field_loc_center, field_loc_NEcorner, &
           field_type_scalar, field_type_vector
       use ice_restart_shared, only: restart_dir, pointer_file, &
-          runid, use_restart_time, lenstr, restart_coszen
+          runid, use_restart_time, lenstr
       use ice_restart
       use ice_exit, only: abort_ice
       use ice_fileunits, only: nu_diag, nu_rst_pointer, nu_restart, nu_dump
       use icepack_intfc, only: icepack_warnings_flush, icepack_warnings_aborted
       use icepack_intfc, only: icepack_aggregate
-      use icepack_intfc, only: icepack_query_tracer_indices, icepack_query_tracer_sizes
+      use icepack_intfc, only: icepack_query_tracer_indices
 
       implicit none
       private
@@ -58,7 +58,9 @@
           stressp_1, stressp_2, stressp_3, stressp_4, &
           stressm_1, stressm_2, stressm_3, stressm_4, &
           stress12_1, stress12_2, stress12_3, stress12_4
+#ifdef CESMCOUPLED
       use ice_flux, only: coszen
+#endif
       use ice_state, only: aicen, vicen, vsnon, trcrn, uvel, vvel
 
       character(len=char_len_long), intent(in), optional :: filename_spec
@@ -130,9 +132,9 @@
       !-----------------------------------------------------------------
       ! radiation fields
       !-----------------------------------------------------------------
-      
-      if (restart_coszen) call write_restart_field(nu_dump,0,coszen,'ruf8','coszen',1,diag)
-
+#ifdef CESMCOUPLED
+      call write_restart_field(nu_dump,0,coszen,'ruf8','coszen',1,diag)
+#endif
       call write_restart_field(nu_dump,0,scale_factor,'ruf8','scale_factor',1,diag)
 
       call write_restart_field(nu_dump,0,swvdr,'ruf8','swvdr',1,diag)
@@ -197,17 +199,19 @@
 
       use ice_boundary, only: ice_HaloUpdate_stress
       use ice_blocks, only: nghost, nx_block, ny_block
-      use ice_calendar, only: istep0, npt, calendar
+      use ice_calendar, only: istep0, npt
       use ice_communicate, only: my_task, master_task
       use ice_domain, only: nblocks, halo_info
       use ice_domain_size, only: nilyr, nslyr, ncat, &
-          max_blocks
+          max_ntrcr, max_blocks
       use ice_flux, only: scale_factor, swvdr, swvdf, swidr, swidf, &
           strocnxT, strocnyT, sst, frzmlt, iceumask, &
           stressp_1, stressp_2, stressp_3, stressp_4, &
           stressm_1, stressm_2, stressm_3, stressm_4, &
           stress12_1, stress12_2, stress12_3, stress12_4
+#ifdef CESMCOUPLED
       use ice_flux, only: coszen
+#endif
       use ice_grid, only: tmask, grid_type
       use ice_state, only: trcr_depend, aice, vice, vsno, trcr, &
           aice0, aicen, vicen, vsnon, trcrn, aice_init, uvel, vvel, &
@@ -219,7 +223,6 @@
 
       integer (kind=int_kind) :: &
          i, j, k, iblk, &     ! counting indices
-         ntrcr, &             ! number of tracers
          nt_Tsfc, nt_sice, nt_qice, nt_qsno
 
       logical (kind=log_kind) :: &
@@ -232,11 +235,6 @@
 
       character(len=*), parameter :: subname = '(restartfile)'
 
-      call icepack_query_tracer_sizes(ntrcr_out=ntrcr)
-      call icepack_warnings_flush(nu_diag)
-      if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
-          file=__FILE__, line=__LINE__)
-
       call icepack_query_tracer_indices(nt_Tsfc_out=nt_Tsfc, nt_sice_out=nt_sice, &
            nt_qice_out=nt_qice, nt_qsno_out=nt_qsno) 
       call icepack_warnings_flush(nu_diag)
@@ -244,7 +242,6 @@
          file=__FILE__, line=__LINE__)
 
       call init_restart_read(ice_ic)
-      call calendar()
 
       diag = .true.
 
@@ -307,8 +304,11 @@
       if (my_task == master_task) &
          write(nu_diag,*) 'radiation fields'
 
-      if (restart_coszen) call read_restart_field(nu_restart,0,coszen,'ruf8', &
+#ifdef CESMCOUPLED
+      call read_restart_field(nu_restart,0,coszen,'ruf8', &
+!           'coszen',1,diag, field_loc_center, field_type_scalar)
            'coszen',1,diag)
+#endif
       call read_restart_field(nu_restart,0,scale_factor,'ruf8', &
            'scale_factor',1,diag, field_loc_center, field_type_scalar)
       call read_restart_field(nu_restart,0,swvdr,'ruf8', &
@@ -487,21 +487,21 @@
       do j = 1, ny_block
       do i = 1, nx_block
          if (tmask(i,j,iblk)) &
-            call icepack_aggregate(ncat  = ncat,                  &
-                                   aicen = aicen(i,j,:,iblk),     &
-                                   trcrn = trcrn(i,j,:,:,iblk),   &
-                                   vicen = vicen(i,j,:,iblk),     &
-                                   vsnon = vsnon(i,j,:,iblk),     &
-                                   aice  = aice (i,j,  iblk),     &
-                                   trcr  = trcr (i,j,:,iblk),     &
-                                   vice  = vice (i,j,  iblk),     &
-                                   vsno  = vsno (i,j,  iblk),     &
-                                   aice0 = aice0(i,j,  iblk),     &
-                                   ntrcr = ntrcr,                 &
-                                   trcr_depend   = trcr_depend,   &
-                                   trcr_base     = trcr_base,     &
-                                   n_trcr_strata = n_trcr_strata, &
-                                   nt_strata     = nt_strata)
+         call icepack_aggregate (ncat,               &
+                                aicen(i,j,:,iblk),  &
+                                trcrn(i,j,:,:,iblk),&
+                                vicen(i,j,:,iblk),  &
+                                vsnon(i,j,:,iblk),  &
+                                aice (i,j,  iblk),  &
+                                trcr (i,j,:,iblk),  &
+                                vice (i,j,  iblk),  &
+                                vsno (i,j,  iblk),  &
+                                aice0(i,j,  iblk),  &
+                                max_ntrcr,          &
+                                trcr_depend,        &
+                                trcr_base,          &
+                                n_trcr_strata,      &
+                                nt_strata)
 
          aice_init(i,j,iblk) = aice(i,j,iblk)
       enddo
@@ -530,12 +530,11 @@
 
       use ice_broadcast, only: broadcast_scalar
       use ice_blocks, only: nghost, nx_block, ny_block
-      use ice_calendar, only: istep0, istep1, timesecs, calendar, npt, &
-          set_date_from_timesecs
+      use ice_calendar, only: istep0, istep1, time, time_forc, calendar, npt
       use ice_communicate, only: my_task, master_task
       use ice_domain, only: nblocks, distrb_info
       use ice_domain_size, only: nilyr, nslyr, ncat, nx_global, ny_global, &
-          max_blocks
+          max_ntrcr, max_blocks
       use ice_flux, only: scale_factor, swvdr, swvdf, swidr, swidf, &
           strocnxT, strocnyT, sst, frzmlt, iceumask, &
           stressp_1, stressp_2, stressp_3, stressp_4, &
@@ -554,7 +553,6 @@
 
       integer (kind=int_kind) :: &
          i, j, k, n, iblk, &     ! counting indices
-         ntrcr, &                ! number of tracers
          nt_Tsfc, nt_sice, nt_qice, nt_qsno, &
          iignore                 ! dummy variable
 
@@ -573,15 +571,7 @@
       real (kind=dbl_kind), dimension(:,:), allocatable :: &
          work_g1, work_g2
 
-      real (kind=dbl_kind) :: &
-         time_forc      ! historic, now local
-
       character(len=*), parameter :: subname = '(restartfile_v4)'
-
-      call icepack_query_tracer_sizes(ntrcr_out=ntrcr)
-      call icepack_warnings_flush(nu_diag)
-      if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
-          file=__FILE__, line=__LINE__)
 
       call icepack_query_tracer_indices(nt_Tsfc_out=nt_Tsfc, nt_sice_out=nt_sice, &
            nt_qice_out=nt_qice, nt_qsno_out=nt_qsno) 
@@ -607,15 +597,14 @@
       if (use_restart_time) then
 
          if (my_task == master_task) then
-            read (nu_restart) istep0,timesecs,time_forc
-            write(nu_diag,*) 'Restart read at istep=',istep0,timesecs
+            read (nu_restart) istep0,time,time_forc
+            write(nu_diag,*) 'Restart read at istep=',istep0,time,time_forc
          endif
          call broadcast_scalar(istep0,master_task)
          istep1 = istep0
-         call broadcast_scalar(timesecs,master_task)
-!         call broadcast_scalar(time_forc,master_task)
-         call set_date_from_timesecs(timesecs)
-         call calendar()
+         call broadcast_scalar(time,master_task)
+         call broadcast_scalar(time_forc,master_task)
+         call calendar(time)
 
       else
 
@@ -855,21 +844,21 @@
       do j = 1, ny_block
       do i = 1, nx_block
          if (tmask(i,j,iblk)) &
-            call icepack_aggregate(ncat  = ncat,                  &
-                                   aicen = aicen(i,j,:,iblk),     &
-                                   trcrn = trcrn(i,j,:,:,iblk),   &
-                                   vicen = vicen(i,j,:,iblk),     &
-                                   vsnon = vsnon(i,j,:,iblk),     &
-                                   aice  = aice (i,j,  iblk),     &
-                                   trcr  = trcr (i,j,:,iblk),     &
-                                   vice  = vice (i,j,  iblk),     &
-                                   vsno  = vsno (i,j,  iblk),     &
-                                   aice0 = aice0(i,j,  iblk),     &
-                                   ntrcr = ntrcr,                 &
-                                   trcr_depend   = trcr_depend,   &
-                                   trcr_base     = trcr_base,     &
-                                   n_trcr_strata = n_trcr_strata, &
-                                   nt_strata     = nt_strata)
+         call icepack_aggregate (ncat,               &
+                                aicen(i,j,:,iblk),  &
+                                trcrn(i,j,:,:,iblk),&
+                                vicen(i,j,:,iblk),  &
+                                vsnon(i,j,:,iblk),  &
+                                aice (i,j,  iblk),  &
+                                trcr (i,j,:,iblk),  &
+                                vice (i,j,  iblk),  &
+                                vsno (i,j,  iblk),  &
+                                aice0(i,j,  iblk),  &
+                                max_ntrcr,          &
+                                trcr_depend,        &
+                                trcr_base,          &
+                                n_trcr_strata,      &
+                                nt_strata)
 
          aice_init(i,j,iblk) = aice(i,j,iblk)
       enddo
@@ -882,7 +871,7 @@
       if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
          file=__FILE__, line=__LINE__)
 
-      ! creates new file
+      ! creates netcdf if restart_format = 'nc'
       filename = trim(restart_dir) // '/iced.converted'
       call dumpfile(filename) 
       call final_restart

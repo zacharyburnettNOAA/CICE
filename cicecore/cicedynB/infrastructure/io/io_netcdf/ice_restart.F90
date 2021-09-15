@@ -1,6 +1,3 @@
-#ifdef ncdf
-#define USE_NETCDF
-#endif
 !=======================================================================
 
 ! Read and write ice model restart files using netCDF or binary
@@ -11,16 +8,14 @@
 
       use ice_broadcast
       use ice_kinds_mod
-#ifdef USE_NETCDF
       use netcdf
-#endif
       use ice_restart_shared, only: &
           restart_ext, restart_dir, restart_file, pointer_file, &
-          runid, use_restart_time, lcdf64, lenstr, restart_coszen
+          runid, use_restart_time, lcdf64, lenstr
       use ice_fileunits, only: nu_diag, nu_rst_pointer
       use ice_exit, only: abort_ice
       use icepack_intfc, only: icepack_query_parameters
-      use icepack_intfc, only: icepack_query_tracer_sizes
+      use icepack_intfc, only: icepack_query_tracer_numbers
       use icepack_intfc, only: icepack_query_tracer_flags
       use icepack_intfc, only: icepack_warnings_flush, icepack_warnings_aborted
 
@@ -42,8 +37,8 @@
 
       subroutine init_restart_read(ice_ic)
 
-      use ice_calendar, only: msec, mmonth, mday, myear, &
-                             istep0, istep1, npt
+      use ice_calendar, only: sec, month, mday, nyr, istep0, istep1, &
+                              time, time_forc, npt
       use ice_communicate, only: my_task, master_task
 
       character(len=char_len_long), intent(in), optional :: ice_ic
@@ -53,11 +48,10 @@
       character(len=char_len_long) :: &
          filename, filename0
 
-      integer (kind=int_kind) :: status, status1
+      integer (kind=int_kind) :: status
 
       character(len=*), parameter :: subname = '(init_restart_read)'
 
-#ifdef USE_NETCDF
       if (present(ice_ic)) then 
          filename = trim(ice_ic)
       else
@@ -79,46 +73,31 @@
             'ERROR: reading restart ncfile '//trim(filename))
       
          if (use_restart_time) then
-            status1 = nf90_noerr
-            status = nf90_get_att(ncid, nf90_global, 'istep1', istep0)
-            if (status /= nf90_noerr) status1 = status
-!            status = nf90_get_att(ncid, nf90_global, 'time', time)
-!            status = nf90_get_att(ncid, nf90_global, 'time_forc', time_forc)
-            status = nf90_get_att(ncid, nf90_global, 'myear', myear)
-            if (status /= nf90_noerr) status = nf90_get_att(ncid, nf90_global, 'nyr', myear)
-            if (status /= nf90_noerr) status1 = status
-            status = nf90_get_att(ncid, nf90_global, 'mmonth', mmonth)
-            if (status /= nf90_noerr) status = nf90_get_att(ncid, nf90_global, 'month', mmonth)
-            if (status /= nf90_noerr) status1 = status
+         status = nf90_get_att(ncid, nf90_global, 'istep1', istep0)
+         status = nf90_get_att(ncid, nf90_global, 'time', time)
+         status = nf90_get_att(ncid, nf90_global, 'time_forc', time_forc)
+         status = nf90_get_att(ncid, nf90_global, 'nyr', nyr)
+         if (status == nf90_noerr) then
+            status = nf90_get_att(ncid, nf90_global, 'month', month)
             status = nf90_get_att(ncid, nf90_global, 'mday', mday)
-            if (status /= nf90_noerr) status1 = status
-            status = nf90_get_att(ncid, nf90_global, 'msec', msec)
-            if (status /= nf90_noerr) status = nf90_get_att(ncid, nf90_global, 'sec', msec)
-            if (status /= nf90_noerr) status1 = status
-            if (status1 /= nf90_noerr) call abort_ice(subname// &
-               'ERROR: reading restart time '//trim(filename))
+            status = nf90_get_att(ncid, nf90_global, 'sec', sec)
+         endif
          endif ! use namelist values if use_restart_time = F
 
+         write(nu_diag,*) 'Restart read at istep=',istep0,time,time_forc
       endif
 
       call broadcast_scalar(istep0,master_task)
-!      call broadcast_scalar(time,master_task)
-      call broadcast_scalar(myear,master_task)
-      call broadcast_scalar(mmonth,master_task)
-      call broadcast_scalar(mday,master_task)
-      call broadcast_scalar(msec,master_task)
-!      call broadcast_scalar(time_forc,master_task)
-
+      call broadcast_scalar(time,master_task)
+      call broadcast_scalar(time_forc,master_task)
+      call broadcast_scalar(nyr,master_task)
+      
       istep1 = istep0
 
       ! if runid is bering then need to correct npt for istep0
       if (trim(runid) == 'bering') then
          npt = npt - istep0
       endif
-#else
-      call abort_ice(subname//'ERROR: USE_NETCDF cpp not defined for '//trim(ice_ic), &
-          file=__FILE__, line=__LINE__)
-#endif
 
       end subroutine init_restart_read
 
@@ -130,11 +109,12 @@
       subroutine init_restart_write(filename_spec)
 
       use ice_blocks, only: nghost
-      use ice_calendar, only: msec, mmonth, mday, myear, istep1
+      use ice_calendar, only: sec, month, mday, nyr, istep1, &
+                              time, time_forc, year_init
       use ice_communicate, only: my_task, master_task
       use ice_domain_size, only: nx_global, ny_global, ncat, nilyr, nslyr, &
-                                 n_iso, n_aero, nblyr, n_zaero, n_algae, n_doc,   &
-                                 n_dic, n_don, n_fed, n_fep, nfsd
+                                 n_aero, nblyr, n_zaero, n_algae, n_doc,   &
+                                 n_dic, n_don, n_fed, n_fep
       use ice_arrays_column, only: oceanmixed_ice
       use ice_dyn_shared, only: kdyn
 
@@ -143,19 +123,20 @@
       ! local variables
 
       logical (kind=log_kind) :: &
-         solve_zsal, skl_bgc, z_tracers, tr_fsd, &
-         tr_iage, tr_FY, tr_lvl, tr_iso, tr_aero, tr_pond_cesm, &
-         tr_pond_topo, tr_pond_lvl, tr_brine, tr_snow, &
+         solve_zsal, skl_bgc, z_tracers, &
+         tr_iage, tr_FY, tr_lvl, tr_aero, tr_pond_cesm, &
+         tr_pond_topo, tr_pond_lvl, tr_brine, &
          tr_bgc_N, tr_bgc_C, tr_bgc_Nit, &
          tr_bgc_Sil, tr_bgc_DMS, &
-         tr_bgc_chl, tr_bgc_Am,  &
+         tr_bgc_chl,  tr_bgc_Am, &
          tr_bgc_PON, tr_bgc_DON, &
-         tr_zaero,   tr_bgc_Fe,  &
+         tr_zaero,    tr_bgc_Fe, &
          tr_bgc_hum
 
       integer (kind=int_kind) :: &
-         k, n,                 & ! index
+         k,  n,                & ! index
          nx, ny,               & ! global array size
+         iyear, imonth, iday,  & ! year, month, day
          nbtrcr                  ! number of bgc tracers
 
       character(len=char_len_long) :: filename
@@ -173,16 +154,14 @@
 
       character(len=*), parameter :: subname = '(init_restart_write)'
 
-#ifdef USE_NETCDF
       call icepack_query_parameters( &
          solve_zsal_out=solve_zsal, skl_bgc_out=skl_bgc, z_tracers_out=z_tracers)
-      call icepack_query_tracer_sizes( &
+      call icepack_query_tracer_numbers( &
          nbtrcr_out=nbtrcr)
       call icepack_query_tracer_flags( &
-         tr_iage_out=tr_iage, tr_FY_out=tr_FY, tr_lvl_out=tr_lvl, tr_fsd_out=tr_fsd, &
-         tr_iso_out=tr_iso, tr_aero_out=tr_aero, tr_pond_cesm_out=tr_pond_cesm, &
-         tr_pond_topo_out=tr_pond_topo, tr_pond_lvl_out=tr_pond_lvl, &
-         tr_snow_out=tr_snow, tr_brine_out=tr_brine, &
+         tr_iage_out=tr_iage, tr_FY_out=tr_FY, tr_lvl_out=tr_lvl, &
+         tr_aero_out=tr_aero, tr_pond_cesm_out=tr_pond_cesm, &
+         tr_pond_topo_out=tr_pond_topo, tr_pond_lvl_out=tr_pond_lvl, tr_brine_out=tr_brine, &
          tr_bgc_N_out=tr_bgc_N, tr_bgc_C_out=tr_bgc_C, tr_bgc_Nit_out=tr_bgc_Nit, &
          tr_bgc_Sil_out=tr_bgc_Sil, tr_bgc_DMS_out=tr_bgc_DMS, &
          tr_bgc_chl_out=tr_bgc_chl, tr_bgc_Am_out=tr_bgc_Am, &
@@ -197,10 +176,12 @@
       if (present(filename_spec)) then
          filename = trim(filename_spec)
       else
+         iyear = nyr + year_init - 1
+      
          write(filename,'(a,a,a,i4.4,a,i2.2,a,i2.2,a,i5.5)') &
               restart_dir(1:lenstr(restart_dir)), &
               restart_file(1:lenstr(restart_file)),'.', &
-              myear,'-',mmonth,'-',mday,'-',msec
+              iyear,'-',month,'-',mday,'-',sec
       end if
 
       ! write pointer (path/file)
@@ -217,12 +198,12 @@
             'ERROR: creating restart ncfile '//trim(filename))
 
          status = nf90_put_att(ncid,nf90_global,'istep1',istep1)
-!         status = nf90_put_att(ncid,nf90_global,'time',time)
-!         status = nf90_put_att(ncid,nf90_global,'time_forc',time_forc)
-         status = nf90_put_att(ncid,nf90_global,'myear',myear)
-         status = nf90_put_att(ncid,nf90_global,'mmonth',mmonth)
+         status = nf90_put_att(ncid,nf90_global,'time',time)
+         status = nf90_put_att(ncid,nf90_global,'time_forc',time_forc)
+         status = nf90_put_att(ncid,nf90_global,'nyr',nyr)
+         status = nf90_put_att(ncid,nf90_global,'month',month)
          status = nf90_put_att(ncid,nf90_global,'mday',mday)
-         status = nf90_put_att(ncid,nf90_global,'msec',msec)
+         status = nf90_put_att(ncid,nf90_global,'sec',sec)
 
          nx = nx_global
          ny = ny_global
@@ -246,9 +227,10 @@
 
          call define_rest_field(ncid,'uvel',dims)
          call define_rest_field(ncid,'vvel',dims)
-         
-         if (restart_coszen) call define_rest_field(ncid,'coszen',dims)
 
+#ifdef CESMCOUPLED
+         call define_rest_field(ncid,'coszen',dims)
+#endif
          call define_rest_field(ncid,'scale_factor',dims)
          call define_rest_field(ncid,'swvdr',dims)
          call define_rest_field(ncid,'swvdf',dims)
@@ -481,31 +463,6 @@
             call define_rest_field(ncid,'qsno'//trim(nchar),dims)
          enddo
 
-         if (tr_snow) then
-            do k=1,nslyr
-               write(nchar,'(i3.3)') k
-               call define_rest_field(ncid,'smice'//trim(nchar),dims)
-               call define_rest_field(ncid,'smliq'//trim(nchar),dims)
-               call define_rest_field(ncid, 'rhos'//trim(nchar),dims)
-               call define_rest_field(ncid, 'rsnw'//trim(nchar),dims)
-            enddo
-         endif
-
-         if (tr_fsd) then
-            do k=1,nfsd
-               write(nchar,'(i3.3)') k
-               call define_rest_field(ncid,'fsd'//trim(nchar),dims)
-            enddo
-         endif
-
-         if (tr_iso) then
-            do k=1,n_iso
-               write(nchar,'(i3.3)') k
-               call define_rest_field(ncid,'isosno'//trim(nchar),dims)
-               call define_rest_field(ncid,'isoice'//trim(nchar),dims)
-            enddo
-         endif
-
          if (tr_aero) then
             do k=1,n_aero
                write(nchar,'(i3.3)') k
@@ -649,11 +606,6 @@
          write(nu_diag,*) 'Writing ',filename(1:lenstr(filename))
       endif ! master_task
 
-#else
-      call abort_ice(subname//'ERROR: USE_NETCDF cpp not defined for '//trim(filename_spec), &
-          file=__FILE__, line=__LINE__)
-#endif
-
       end subroutine init_restart_write
 
 !=======================================================================
@@ -673,7 +625,8 @@
            ndim3         , & ! third dimension
            nrec              ! record number (0 for sequential access)
 
-      real (kind=dbl_kind), dimension(nx_block,ny_block,ndim3,max_blocks), intent(inout) :: &
+      real (kind=dbl_kind), dimension(nx_block,ny_block,ndim3,max_blocks), &
+           intent(inout) :: &
            work              ! input array (real, 8-byte)
 
       character (len=4), intent(in) :: &
@@ -691,12 +644,16 @@
 
       ! local variables
 
+      integer (kind=int_kind) :: &
+        n,     &      ! number of dimensions for variable
+        varid, &      ! variable id
+        status        ! status variable from netCDF routine
+
       real (kind=dbl_kind), dimension(nx_block,ny_block,max_blocks) :: &
            work2              ! input array (real, 8-byte)
 
       character(len=*), parameter :: subname = '(read_restart_field)'
 
-#ifdef USE_NETCDF
          if (present(field_loc)) then
             if (ndim3 == ncat) then
                if (restart_ext) then
@@ -735,11 +692,6 @@
             endif
          endif
 
-#else
-      call abort_ice(subname//'ERROR: USE_NETCDF cpp not defined', &
-          file=__FILE__, line=__LINE__)
-#endif
-
       end subroutine read_restart_field
       
 !=======================================================================
@@ -758,7 +710,8 @@
            ndim3         , & ! third dimension
            nrec              ! record number (0 for sequential access)
 
-      real (kind=dbl_kind), dimension(nx_block,ny_block,ndim3,max_blocks), intent(in) :: &
+      real (kind=dbl_kind), dimension(nx_block,ny_block,ndim3,max_blocks), &
+           intent(in) :: &
            work              ! input array (real, 8-byte)
 
       character (len=4), intent(in) :: &
@@ -781,7 +734,6 @@
 
       character(len=*), parameter :: subname = '(write_restart_field)'
 
-#ifdef USE_NETCDF
          status = nf90_inq_varid(ncid,trim(vname),varid)
          if (ndim3 == ncat) then 
             if (restart_ext) then
@@ -800,11 +752,6 @@
             write(nu_diag,*) 'ndim3 not supported',ndim3
          endif
 
-#else
-      call abort_ice(subname//'ERROR: USE_NETCDF cpp not defined', &
-          file=__FILE__, line=__LINE__)
-#endif
-
       end subroutine write_restart_field
 
 !=======================================================================
@@ -814,23 +761,17 @@
 
       subroutine final_restart()
 
-      use ice_calendar, only: istep1, idate
+      use ice_calendar, only: istep1, time, time_forc
       use ice_communicate, only: my_task, master_task
 
       integer (kind=int_kind) :: status
 
       character(len=*), parameter :: subname = '(final_restart)'
 
-#ifdef USE_NETCDF
       status = nf90_close(ncid)
 
       if (my_task == master_task) &
-         write(nu_diag,*) 'Restart read/written ',istep1,idate
-
-#else
-      call abort_ice(subname//'ERROR: USE_NETCDF cpp not defined', &
-          file=__FILE__, line=__LINE__)
-#endif
+         write(nu_diag,*) 'Restart read/written ',istep1,time,time_forc
 
       end subroutine final_restart
 
@@ -852,12 +793,7 @@
 
       character(len=*), parameter :: subname = '(define_rest_field)'
 
-#ifdef USE_NETCDF
       status = nf90_def_var(ncid,trim(vname),nf90_double,dims,varid)
-#else
-      call abort_ice(subname//'ERROR: USE_NETCDF cpp not defined', &
-          file=__FILE__, line=__LINE__)
-#endif
         
       end subroutine define_rest_field
 

@@ -34,15 +34,13 @@
       module ice_dyn_evp
 
       use ice_kinds_mod
-      use ice_communicate, only: my_task, master_task
       use ice_constants, only: field_loc_center, field_loc_NEcorner, &
           field_type_scalar, field_type_vector
-      use ice_constants, only: c0, p027, p055, p111, p166, &
-          p222, p25, p333, p5, c1
+      use ice_constants, only: c0, c4, p027, p055, p111, p166, &
+          p2, p222, p25, p333, p5, c1
       use ice_dyn_shared, only: stepu, dyn_prep1, dyn_prep2, dyn_finish, &
-          ndte, yield_curve, ecci, denom1, arlx1i, fcor_blk, uvel_init, vvel_init, &
-          seabed_stress_factor_LKD, seabed_stress_factor_prob, seabed_stress_method, &
-          seabed_stress, Ktens, revp
+          ndte, yield_curve, ecci, denom1, arlx1i, fcor_blk, uvel_init,  &
+          vvel_init, basal_stress_coeff, basalstress, Ktens
       use ice_fileunits, only: nu_diag
       use ice_exit, only: abort_ice
       use icepack_intfc, only: icepack_warnings_flush, icepack_warnings_aborted
@@ -75,9 +73,9 @@
       use ice_arrays_column, only: Cdn_ocn
       use ice_boundary, only: ice_halo, ice_HaloMask, ice_HaloUpdate, &
           ice_HaloDestroy, ice_HaloUpdate_stress
-      use ice_blocks, only: block, get_block, nx_block, ny_block, nghost
+      use ice_blocks, only: block, get_block, nx_block, ny_block
       use ice_domain, only: nblocks, blocks_ice, halo_info, maskhalo_dyn
-      use ice_domain_size, only: max_blocks, ncat, nx_global, ny_global
+      use ice_domain_size, only: max_blocks, ncat
       use ice_flux, only: rdg_conv, rdg_shear, strairxT, strairyT, &
           strairx, strairy, uocn, vocn, ss_tltx, ss_tlty, iceumask, fm, &
           strtltx, strtlty, strocnx, strocny, strintx, strinty, taubx, tauby, &
@@ -92,10 +90,7 @@
       use ice_state, only: aice, vice, vsno, uvel, vvel, divu, shear, &
           aice_init, aice0, aicen, vicen, strength
       use ice_timers, only: timer_dynamics, timer_bound, &
-          ice_timer_start, ice_timer_stop, timer_evp_1d, timer_evp_2d
-      use ice_dyn_evp_1d, only: ice_dyn_evp_1d_copyin, ice_dyn_evp_1d_kernel, &
-          ice_dyn_evp_1d_copyout
-      use ice_dyn_shared, only: evp_algorithm, stack_velocity_field, unstack_velocity_field
+          ice_timer_start, ice_timer_stop
 
       real (kind=dbl_kind), intent(in) :: &
          dt      ! time step
@@ -144,8 +139,6 @@
 
       type (block) :: &
          this_block           ! block information for current block
-
-      logical (kind=log_kind), save :: first_time = .true.
       
       character(len=*), parameter :: subname = '(evp)'
 
@@ -289,14 +282,18 @@
          do ij = 1, icellt(iblk)
             i = indxti(ij, iblk)
             j = indxtj(ij, iblk)
-            call icepack_ice_strength(ncat     = ncat,                 &
-                                      aice     = aice    (i,j,  iblk), & 
-                                      vice     = vice    (i,j,  iblk), & 
-                                      aice0    = aice0   (i,j,  iblk), & 
-                                      aicen    = aicen   (i,j,:,iblk), &  
-                                      vicen    = vicen   (i,j,:,iblk), & 
-                                      strength = strength(i,j,  iblk) )
+            call icepack_ice_strength (ncat,                 &
+                                      aice    (i,j,  iblk), & 
+                                      vice    (i,j,  iblk), & 
+                                      aice0   (i,j,  iblk), & 
+                                      aicen   (i,j,:,iblk), &  
+                                      vicen   (i,j,:,iblk), & 
+                                      strength(i,j,  iblk) )
          enddo  ! ij
+
+         ! load velocity into array for boundary updates
+         fld2(:,:,1,iblk) = uvel(:,:,iblk)
+         fld2(:,:,2,iblk) = vvel(:,:,iblk)
 
       enddo  ! iblk
       !$TCXOMP END PARALLEL DO
@@ -309,11 +306,17 @@
       call ice_HaloUpdate (strength,           halo_info, &
                            field_loc_center,   field_type_scalar)
       ! velocities may have changed in dyn_prep2
-      call stack_velocity_field(uvel, vvel, fld2)
       call ice_HaloUpdate (fld2,               halo_info, &
                            field_loc_NEcorner, field_type_vector)
-      call unstack_velocity_field(fld2, uvel, vvel)
       call ice_timer_stop(timer_bound)
+
+      ! unload
+      !$OMP PARALLEL DO PRIVATE(iblk)
+      do iblk = 1, nblocks
+         uvel(:,:,iblk) = fld2(:,:,1,iblk)
+         vvel(:,:,iblk) = fld2(:,:,2,iblk)
+      enddo
+      !$OMP END PARALLEL DO
 
       if (maskhalo_dyn) then
          call ice_timer_start(timer_bound)
@@ -326,141 +329,98 @@
       endif
 
       !-----------------------------------------------------------------
-      ! seabed stress factor Tbu (Tbu is part of Cb coefficient)
+      ! basal stress coefficients (landfast ice)
       !-----------------------------------------------------------------
       
-      if (seabed_stress) then
-
-         !$OMP PARALLEL DO PRIVATE(iblk)
-         do iblk = 1, nblocks
-
-            if ( seabed_stress_method == 'LKD' ) then
-
-               call seabed_stress_factor_LKD (nx_block,         ny_block,       &
-                                              icellu  (iblk),                   &
-                                              indxui(:,iblk),   indxuj(:,iblk), &
-                                              vice(:,:,iblk),   aice(:,:,iblk), &
-                                              hwater(:,:,iblk), Tbu(:,:,iblk))
-
-            elseif ( seabed_stress_method == 'probabilistic' ) then
-
-               call seabed_stress_factor_prob (nx_block,         ny_block,                   &
-                                               icellt(iblk), indxti(:,iblk), indxtj(:,iblk), &
-                                               icellu(iblk), indxui(:,iblk), indxuj(:,iblk), &
-                                               aicen(:,:,:,iblk), vicen(:,:,:,iblk),         &
-                                               hwater(:,:,iblk), Tbu(:,:,iblk))
-            endif
-         
-         enddo
+      if (basalstress) then
+       !$OMP PARALLEL DO PRIVATE(iblk)
+       do iblk = 1, nblocks
+         call basal_stress_coeff (nx_block,         ny_block,       &
+                                  icellu  (iblk),                   &
+                                  indxui(:,iblk),   indxuj(:,iblk), &
+                                  vice(:,:,iblk),   aice(:,:,iblk), &
+                                  hwater(:,:,iblk), Tbu(:,:,iblk))
+       enddo
        !$OMP END PARALLEL DO
       endif
+      
+      do ksub = 1,ndte        ! subcycling
 
-      call ice_timer_start(timer_evp_2d)
+      !-----------------------------------------------------------------
+      ! stress tensor equation, total surface stress
+      !-----------------------------------------------------------------
 
-      if (evp_algorithm == "shared_mem_1d" ) then
+         !$TCXOMP PARALLEL DO PRIVATE(iblk,strtmp)
+         do iblk = 1, nblocks
 
-         if (first_time .and. my_task == master_task) then
-            write(nu_diag,'(3a)') subname,' Entering evp_algorithm version ',evp_algorithm
-            first_time = .false.
+!            if (trim(yield_curve) == 'ellipse') then
+               call stress (nx_block,             ny_block,             & 
+                            ksub,                 icellt(iblk),         & 
+                            indxti      (:,iblk), indxtj      (:,iblk), & 
+                            uvel      (:,:,iblk), vvel      (:,:,iblk), &     
+                            dxt       (:,:,iblk), dyt       (:,:,iblk), & 
+                            dxhy      (:,:,iblk), dyhx      (:,:,iblk), & 
+                            cxp       (:,:,iblk), cyp       (:,:,iblk), & 
+                            cxm       (:,:,iblk), cym       (:,:,iblk), & 
+                            tarear    (:,:,iblk), tinyarea  (:,:,iblk), & 
+                            strength  (:,:,iblk),                       & 
+                            stressp_1 (:,:,iblk), stressp_2 (:,:,iblk), & 
+                            stressp_3 (:,:,iblk), stressp_4 (:,:,iblk), & 
+                            stressm_1 (:,:,iblk), stressm_2 (:,:,iblk), & 
+                            stressm_3 (:,:,iblk), stressm_4 (:,:,iblk), & 
+                            stress12_1(:,:,iblk), stress12_2(:,:,iblk), & 
+                            stress12_3(:,:,iblk), stress12_4(:,:,iblk), & 
+                            shear     (:,:,iblk), divu      (:,:,iblk), & 
+                            rdg_conv  (:,:,iblk), rdg_shear (:,:,iblk), & 
+                            strtmp    (:,:,:) )
+!            endif               ! yield_curve
+
+      !-----------------------------------------------------------------
+      ! momentum equation
+      !-----------------------------------------------------------------
+
+            call stepu (nx_block,            ny_block,           &
+                        icellu       (iblk), Cdn_ocn (:,:,iblk), & 
+                        indxui     (:,iblk), indxuj    (:,iblk), &
+                        ksub,                                    &
+                        aiu      (:,:,iblk), strtmp  (:,:,:),    & 
+                        uocn     (:,:,iblk), vocn    (:,:,iblk), &     
+                        waterx   (:,:,iblk), watery  (:,:,iblk), & 
+                        forcex   (:,:,iblk), forcey  (:,:,iblk), & 
+                        umassdti (:,:,iblk), fm      (:,:,iblk), & 
+                        uarear   (:,:,iblk),                     & 
+                        strocnx  (:,:,iblk), strocny (:,:,iblk), & 
+                        strintx  (:,:,iblk), strinty (:,:,iblk), &
+                        taubx    (:,:,iblk), tauby   (:,:,iblk), & 
+                        uvel_init(:,:,iblk), vvel_init(:,:,iblk),&
+                        uvel     (:,:,iblk), vvel    (:,:,iblk), &
+                        Tbu      (:,:,iblk))
+
+            ! load velocity into array for boundary updates
+            fld2(:,:,1,iblk) = uvel(:,:,iblk)
+            fld2(:,:,2,iblk) = vvel(:,:,iblk)
+         enddo
+         !$TCXOMP END PARALLEL DO
+
+         call ice_timer_start(timer_bound)
+         if (maskhalo_dyn) then
+            call ice_HaloUpdate (fld2,               halo_info_mask, &
+                                 field_loc_NEcorner, field_type_vector)
+         else
+            call ice_HaloUpdate (fld2,               halo_info, &
+                                 field_loc_NEcorner, field_type_vector)
          endif
-         if (trim(grid_type) == 'tripole') then
-            call abort_ice(trim(subname)//' &
-               & Kernel not tested on tripole grid. Set evp_algorithm=standard_2d')
-         endif
+         call ice_timer_stop(timer_bound)
 
-         call ice_dyn_evp_1d_copyin(                                                &
-            nx_block,ny_block,nblocks,nx_global+2*nghost,ny_global+2*nghost, &
-            icetmask, iceumask,                                           &
-            cdn_ocn,aiu,uocn,vocn,forcex,forcey,Tbu,        &
-            umassdti,fm,uarear,tarear,strintx,strinty,uvel_init,vvel_init,&
-            strength,uvel,vvel,dxt,dyt,                                   &
-            stressp_1 ,stressp_2, stressp_3, stressp_4,                   &
-            stressm_1 ,stressm_2, stressm_3, stressm_4,                   &
-            stress12_1,stress12_2,stress12_3,stress12_4                   )
-         call ice_timer_start(timer_evp_1d)
-         call ice_dyn_evp_1d_kernel()
-         call ice_timer_stop(timer_evp_1d)
-         call ice_dyn_evp_1d_copyout(                                      &
-            nx_block,ny_block,nblocks,nx_global+2*nghost,ny_global+2*nghost,&
-!strocn            uvel,vvel, strocnx,strocny, strintx,strinty,                  &
-            uvel,vvel, strintx,strinty,                                   &
-            stressp_1, stressp_2, stressp_3, stressp_4,                   &
-            stressm_1, stressm_2, stressm_3, stressm_4,                   &
-            stress12_1,stress12_2,stress12_3,stress12_4,                  &
-            divu,rdg_conv,rdg_shear,shear,taubx,tauby                     )
-
-      else ! evp_algorithm == standard_2d (Standard CICE)
-
-         do ksub = 1,ndte        ! subcycling
-
-         !-----------------------------------------------------------------
-         ! stress tensor equation, total surface stress
-         !-----------------------------------------------------------------
-
-            !$TCXOMP PARALLEL DO PRIVATE(iblk,strtmp)
-            do iblk = 1, nblocks
-
-!               if (trim(yield_curve) == 'ellipse') then
-                  call stress (nx_block,             ny_block,             &
-                               ksub,                 icellt(iblk),         &
-                               indxti      (:,iblk), indxtj      (:,iblk), &
-                               uvel      (:,:,iblk), vvel      (:,:,iblk), &
-                               dxt       (:,:,iblk), dyt       (:,:,iblk), &
-                               dxhy      (:,:,iblk), dyhx      (:,:,iblk), &
-                               cxp       (:,:,iblk), cyp       (:,:,iblk), &
-                               cxm       (:,:,iblk), cym       (:,:,iblk), &
-                               tarear    (:,:,iblk), tinyarea  (:,:,iblk), &
-                               strength  (:,:,iblk),                       &
-                               stressp_1 (:,:,iblk), stressp_2 (:,:,iblk), &
-                               stressp_3 (:,:,iblk), stressp_4 (:,:,iblk), &
-                               stressm_1 (:,:,iblk), stressm_2 (:,:,iblk), &
-                               stressm_3 (:,:,iblk), stressm_4 (:,:,iblk), &
-                               stress12_1(:,:,iblk), stress12_2(:,:,iblk), &
-                               stress12_3(:,:,iblk), stress12_4(:,:,iblk), &
-                               shear     (:,:,iblk), divu      (:,:,iblk), &
-                               rdg_conv  (:,:,iblk), rdg_shear (:,:,iblk), &
-                               strtmp    (:,:,:) )
-!               endif               ! yield_curve
-
-         !-----------------------------------------------------------------
-         ! momentum equation
-         !-----------------------------------------------------------------
-
-               call stepu (nx_block,            ny_block,           &
-                           icellu       (iblk), Cdn_ocn (:,:,iblk), &
-                           indxui     (:,iblk), indxuj    (:,iblk), &
-                           ksub,                                    &
-                           aiu      (:,:,iblk), strtmp  (:,:,:),    &
-                           uocn     (:,:,iblk), vocn    (:,:,iblk), &
-                           waterx   (:,:,iblk), watery  (:,:,iblk), &
-                           forcex   (:,:,iblk), forcey  (:,:,iblk), &
-                           umassdti (:,:,iblk), fm      (:,:,iblk), &
-                           uarear   (:,:,iblk),                     &
-                           strintx  (:,:,iblk), strinty (:,:,iblk), &
-                           taubx    (:,:,iblk), tauby   (:,:,iblk), &
-                           uvel_init(:,:,iblk), vvel_init(:,:,iblk),&
-                           uvel     (:,:,iblk), vvel    (:,:,iblk), &
-                           Tbu      (:,:,iblk))
-
-            enddo
-            !$TCXOMP END PARALLEL DO
-
-            call stack_velocity_field(uvel, vvel, fld2)
-            call ice_timer_start(timer_bound)
-            if (maskhalo_dyn) then
-               call ice_HaloUpdate (fld2,               halo_info_mask, &
-                                    field_loc_NEcorner, field_type_vector)
-            else
-               call ice_HaloUpdate (fld2,               halo_info, &
-                                    field_loc_NEcorner, field_type_vector)
-            endif
-            call ice_timer_stop(timer_bound)
-            call unstack_velocity_field(fld2, uvel, vvel)
+         ! unload
+         !$OMP PARALLEL DO PRIVATE(iblk)
+         do iblk = 1, nblocks
+            uvel(:,:,iblk) = fld2(:,:,1,iblk)
+            vvel(:,:,iblk) = fld2(:,:,2,iblk)
+         enddo
+         !$OMP END PARALLEL DO
          
-         enddo                     ! subcycling
-      endif  ! evp_algorithm
-
-      call ice_timer_stop(timer_evp_2d)
+      enddo                     ! subcycling
 
       deallocate(fld2)
       if (maskhalo_dyn) call ice_HaloDestroy(halo_info_mask)
@@ -590,14 +550,13 @@
                          rdg_conv,   rdg_shear,  & 
                          str )
 
-      use ice_dyn_shared, only: strain_rates, deformations
-
       integer (kind=int_kind), intent(in) :: & 
          nx_block, ny_block, & ! block dimensions
          ksub              , & ! subcycling step
          icellt                ! no. of cells where icetmask = 1
 
-      integer (kind=int_kind), dimension (nx_block*ny_block), intent(in) :: &
+      integer (kind=int_kind), dimension (nx_block*ny_block), & 
+         intent(in) :: &
          indxti   , & ! compressed index in i-direction
          indxtj       ! compressed index in j-direction
 
@@ -607,27 +566,30 @@
          vvel     , & ! y-component of velocity (m/s)
          dxt      , & ! width of T-cell through the middle (m)
          dyt      , & ! height of T-cell through the middle (m)
-         dxhy     , & ! 0.5*(HTE - HTW)
-         dyhx     , & ! 0.5*(HTN - HTS)
-         cyp      , & ! 1.5*HTE - 0.5*HTW
-         cxp      , & ! 1.5*HTN - 0.5*HTS
-         cym      , & ! 0.5*HTE - 1.5*HTW
-         cxm      , & ! 0.5*HTN - 1.5*HTS
+         dxhy     , & ! 0.5*(HTE - HTE)
+         dyhx     , & ! 0.5*(HTN - HTN)
+         cyp      , & ! 1.5*HTE - 0.5*HTE
+         cxp      , & ! 1.5*HTN - 0.5*HTN
+         cym      , & ! 0.5*HTE - 1.5*HTE
+         cxm      , & ! 0.5*HTN - 1.5*HTN
          tarear   , & ! 1/tarea
          tinyarea     ! puny*tarea
 
-      real (kind=dbl_kind), dimension (nx_block,ny_block), intent(inout) :: &
+      real (kind=dbl_kind), dimension (nx_block,ny_block), & 
+         intent(inout) :: &
          stressp_1, stressp_2, stressp_3, stressp_4 , & ! sigma11+sigma22
          stressm_1, stressm_2, stressm_3, stressm_4 , & ! sigma11-sigma22
          stress12_1,stress12_2,stress12_3,stress12_4    ! sigma12
 
-      real (kind=dbl_kind), dimension (nx_block,ny_block), intent(inout) :: &
+      real (kind=dbl_kind), dimension (nx_block,ny_block), & 
+         intent(inout) :: &
          shear    , & ! strain rate II component (1/s)
          divu     , & ! strain rate I component, velocity divergence (1/s)
          rdg_conv , & ! convergence term for ridging (1/s)
          rdg_shear    ! shear term for ridging (1/s)
 
-      real (kind=dbl_kind), dimension(nx_block,ny_block,8), intent(out) :: &
+      real (kind=dbl_kind), dimension(nx_block,ny_block,8), & 
+         intent(out) :: &
          str          ! stress combinations
 
       ! local variables
@@ -640,7 +602,7 @@
         tensionne, tensionnw, tensionse, tensionsw, & ! tension
         shearne, shearnw, shearse, shearsw        , & ! shearing
         Deltane, Deltanw, Deltase, Deltasw        , & ! Delt
-!       puny                                      , & ! puny
+        puny                                      , & ! puny
         c0ne, c0nw, c0se, c0sw                    , & ! useful combinations
         c1ne, c1nw, c1se, c1sw                    , &
         ssigpn, ssigps, ssigpe, ssigpw            , &
@@ -661,6 +623,9 @@
 
       str(:,:,:) = c0
 
+!DIR$ CONCURRENT !Cray
+!cdir nodep      !NEC
+!ocl novrec      !Fujitsu
       do ij = 1, icellt
          i = indxti(ij)
          j = indxtj(ij)
@@ -669,20 +634,58 @@
       ! strain rates
       ! NOTE these are actually strain rates * area  (m^2/s)
       !-----------------------------------------------------------------
-         call strain_rates (nx_block,   ny_block,   &
-                            i,          j,          &
-                            uvel,       vvel,       &
-                            dxt,        dyt,        &
-                            cxp,        cyp,        &
-                            cxm,        cym,        &
-                            divune,     divunw,     &
-                            divuse,     divusw,     &
-                            tensionne,  tensionnw,  &
-                            tensionse,  tensionsw,  &
-                            shearne,    shearnw,    &
-                            shearse,    shearsw,    &
-                            Deltane,    Deltanw,    &
-                            Deltase,    Deltasw     )
+         ! divergence  =  e_11 + e_22
+         divune    = cyp(i,j)*uvel(i  ,j  ) - dyt(i,j)*uvel(i-1,j  ) &
+                   + cxp(i,j)*vvel(i  ,j  ) - dxt(i,j)*vvel(i  ,j-1)
+         divunw    = cym(i,j)*uvel(i-1,j  ) + dyt(i,j)*uvel(i  ,j  ) &
+                   + cxp(i,j)*vvel(i-1,j  ) - dxt(i,j)*vvel(i-1,j-1)
+         divusw    = cym(i,j)*uvel(i-1,j-1) + dyt(i,j)*uvel(i  ,j-1) &
+                   + cxm(i,j)*vvel(i-1,j-1) + dxt(i,j)*vvel(i-1,j  )
+         divuse    = cyp(i,j)*uvel(i  ,j-1) - dyt(i,j)*uvel(i-1,j-1) &
+                   + cxm(i,j)*vvel(i  ,j-1) + dxt(i,j)*vvel(i  ,j  )
+
+         ! tension strain rate  =  e_11 - e_22
+         tensionne = -cym(i,j)*uvel(i  ,j  ) - dyt(i,j)*uvel(i-1,j  ) &
+                   +  cxm(i,j)*vvel(i  ,j  ) + dxt(i,j)*vvel(i  ,j-1)
+         tensionnw = -cyp(i,j)*uvel(i-1,j  ) + dyt(i,j)*uvel(i  ,j  ) &
+                   +  cxm(i,j)*vvel(i-1,j  ) + dxt(i,j)*vvel(i-1,j-1)
+         tensionsw = -cyp(i,j)*uvel(i-1,j-1) + dyt(i,j)*uvel(i  ,j-1) &
+                   +  cxp(i,j)*vvel(i-1,j-1) - dxt(i,j)*vvel(i-1,j  )
+         tensionse = -cym(i,j)*uvel(i  ,j-1) - dyt(i,j)*uvel(i-1,j-1) &
+                   +  cxp(i,j)*vvel(i  ,j-1) - dxt(i,j)*vvel(i  ,j  )
+
+         ! shearing strain rate  =  e_12
+         shearne = -cym(i,j)*vvel(i  ,j  ) - dyt(i,j)*vvel(i-1,j  ) &
+                 -  cxm(i,j)*uvel(i  ,j  ) - dxt(i,j)*uvel(i  ,j-1)
+         shearnw = -cyp(i,j)*vvel(i-1,j  ) + dyt(i,j)*vvel(i  ,j  ) &
+                 -  cxm(i,j)*uvel(i-1,j  ) - dxt(i,j)*uvel(i-1,j-1)
+         shearsw = -cyp(i,j)*vvel(i-1,j-1) + dyt(i,j)*vvel(i  ,j-1) &
+                 -  cxp(i,j)*uvel(i-1,j-1) + dxt(i,j)*uvel(i-1,j  )
+         shearse = -cym(i,j)*vvel(i  ,j-1) - dyt(i,j)*vvel(i-1,j-1) &
+                 -  cxp(i,j)*uvel(i  ,j-1) + dxt(i,j)*uvel(i  ,j  )
+         
+         ! Delta (in the denominator of zeta, eta)
+         Deltane = sqrt(divune**2 + ecci*(tensionne**2 + shearne**2))
+         Deltanw = sqrt(divunw**2 + ecci*(tensionnw**2 + shearnw**2))
+         Deltasw = sqrt(divusw**2 + ecci*(tensionsw**2 + shearsw**2))
+         Deltase = sqrt(divuse**2 + ecci*(tensionse**2 + shearse**2))
+
+      !-----------------------------------------------------------------
+      ! on last subcycle, save quantities for mechanical redistribution
+      !-----------------------------------------------------------------
+         if (ksub == ndte) then
+            divu(i,j) = p25*(divune + divunw + divuse + divusw) * tarear(i,j)
+            tmp = p25*(Deltane + Deltanw + Deltase + Deltasw)   * tarear(i,j)
+            rdg_conv(i,j)  = -min(divu(i,j),c0)
+            rdg_shear(i,j) = p5*(tmp-abs(divu(i,j))) 
+
+            ! diagnostic only
+            ! shear = sqrt(tension**2 + shearing**2)
+            shear(i,j) = p25*tarear(i,j)*sqrt( &
+                 (tensionne + tensionnw + tensionse + tensionsw)**2 &
+                +  (shearne +   shearnw +   shearse +   shearsw)**2)
+
+         endif
 
       !-----------------------------------------------------------------
       ! strength/Delta                   ! kg/s
@@ -707,24 +710,24 @@
       ! (1) northeast, (2) northwest, (3) southwest, (4) southeast
       !-----------------------------------------------------------------
 
-         stressp_1(i,j) = (stressp_1(i,j)*(c1-arlx1i*revp) + c1ne*(divune*(c1+Ktens) - Deltane*(c1-Ktens))) &
+         stressp_1(i,j) = (stressp_1(i,j) + c1ne*(divune*(c1+Ktens) - Deltane*(c1-Ktens))) &
                           * denom1
-         stressp_2(i,j) = (stressp_2(i,j)*(c1-arlx1i*revp) + c1nw*(divunw*(c1+Ktens) - Deltanw*(c1-Ktens))) &
+         stressp_2(i,j) = (stressp_2(i,j) + c1nw*(divunw*(c1+Ktens) - Deltanw*(c1-Ktens))) &
                           * denom1
-         stressp_3(i,j) = (stressp_3(i,j)*(c1-arlx1i*revp) + c1sw*(divusw*(c1+Ktens) - Deltasw*(c1-Ktens))) &
+         stressp_3(i,j) = (stressp_3(i,j) + c1sw*(divusw*(c1+Ktens) - Deltasw*(c1-Ktens))) &
                           * denom1
-         stressp_4(i,j) = (stressp_4(i,j)*(c1-arlx1i*revp) + c1se*(divuse*(c1+Ktens) - Deltase*(c1-Ktens))) &
+         stressp_4(i,j) = (stressp_4(i,j) + c1se*(divuse*(c1+Ktens) - Deltase*(c1-Ktens))) &
                           * denom1
 
-         stressm_1(i,j) = (stressm_1(i,j)*(c1-arlx1i*revp) + c0ne*tensionne*(c1+Ktens)) * denom1
-         stressm_2(i,j) = (stressm_2(i,j)*(c1-arlx1i*revp) + c0nw*tensionnw*(c1+Ktens)) * denom1
-         stressm_3(i,j) = (stressm_3(i,j)*(c1-arlx1i*revp) + c0sw*tensionsw*(c1+Ktens)) * denom1
-         stressm_4(i,j) = (stressm_4(i,j)*(c1-arlx1i*revp) + c0se*tensionse*(c1+Ktens)) * denom1
+         stressm_1(i,j) = (stressm_1(i,j) + c0ne*tensionne*(c1+Ktens)) * denom1
+         stressm_2(i,j) = (stressm_2(i,j) + c0nw*tensionnw*(c1+Ktens)) * denom1
+         stressm_3(i,j) = (stressm_3(i,j) + c0sw*tensionsw*(c1+Ktens)) * denom1
+         stressm_4(i,j) = (stressm_4(i,j) + c0se*tensionse*(c1+Ktens)) * denom1
 
-         stress12_1(i,j) = (stress12_1(i,j)*(c1-arlx1i*revp) + c0ne*shearne*p5*(c1+Ktens)) * denom1
-         stress12_2(i,j) = (stress12_2(i,j)*(c1-arlx1i*revp) + c0nw*shearnw*p5*(c1+Ktens)) * denom1
-         stress12_3(i,j) = (stress12_3(i,j)*(c1-arlx1i*revp) + c0sw*shearsw*p5*(c1+Ktens)) * denom1
-         stress12_4(i,j) = (stress12_4(i,j)*(c1-arlx1i*revp) + c0se*shearse*p5*(c1+Ktens)) * denom1
+         stress12_1(i,j) = (stress12_1(i,j) + c0ne*shearne*p5*(c1+Ktens)) * denom1
+         stress12_2(i,j) = (stress12_2(i,j) + c0nw*shearnw*p5*(c1+Ktens)) * denom1
+         stress12_3(i,j) = (stress12_3(i,j) + c0sw*shearsw*p5*(c1+Ktens)) * denom1
+         stress12_4(i,j) = (stress12_4(i,j) + c0se*shearse*p5*(c1+Ktens)) * denom1
 
       !-----------------------------------------------------------------
       ! Eliminate underflows.
@@ -856,23 +859,6 @@
               - dyhx(i,j)*(csigpsw + csigmsw) + dxhy(i,j)*csig12sw
 
       enddo                     ! ij
-
-      !-----------------------------------------------------------------
-      ! on last subcycle, save quantities for mechanical redistribution
-      !-----------------------------------------------------------------
-      if (ksub == ndte) then
-         call deformations (nx_block  , ny_block  , &
-                            icellt    ,             &
-                            indxti    , indxtj    , &
-                            uvel      , vvel      , &
-                            dxt       , dyt       , &
-                            cxp       , cyp       , &
-                            cxm       , cym       , &
-                            tarear    ,             &
-                            shear     , divu      , &
-                            rdg_conv  , rdg_shear )
-
-      endif
 
       end subroutine stress
 

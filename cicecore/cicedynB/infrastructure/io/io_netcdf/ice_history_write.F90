@@ -1,6 +1,3 @@
-#ifdef ncdf
-#define USE_NETCDF
-#endif
 !=======================================================================
 !
 ! Writes history in netCDF format
@@ -21,7 +18,7 @@
 
       module ice_history_write
 
-      use ice_constants, only: c0, c360, spval, spval_dbl
+      use ice_constants, only: c0, c360, spval
       use ice_fileunits, only: nu_diag
       use ice_exit, only: abort_ice
       use icepack_intfc, only: icepack_warnings_flush, icepack_warnings_aborted
@@ -44,12 +41,12 @@
       subroutine ice_write_hist (ns)
 
       use ice_kinds_mod
-      use ice_arrays_column, only: hin_max, floe_rad_c
+#ifdef ncdf
+      use ice_arrays_column, only: hin_max
       use ice_blocks, only: nx_block, ny_block
       use ice_broadcast, only: broadcast_scalar
-      use ice_calendar, only: msec, timesecs, idate, idate0, write_ic, &
-          histfreq, histfreq_n, days_per_year, use_leap_years, dayyr, &
-          hh_init, mm_init, ss_init
+      use ice_calendar, only: time, sec, idate, idate0, write_ic, &
+          histfreq, dayyr, days_per_year, use_leap_years
       use ice_communicate, only: my_task, master_task
       use ice_domain, only: distrb_info
       use ice_domain_size, only: nx_global, ny_global, max_nstrm, max_blocks
@@ -59,7 +56,6 @@
           lont_bounds, latt_bounds, lonu_bounds, latu_bounds
       use ice_history_shared
       use ice_restart_shared, only: runid, lcdf64
-#ifdef USE_NETCDF
       use netcdf
 #endif
 
@@ -67,26 +63,28 @@
 
       ! local variables
 
-      real (kind=dbl_kind), dimension(:,:),   allocatable :: work_g1
-      real (kind=dbl_kind), dimension(:,:,:), allocatable :: work1_3
-      real (kind=dbl_kind), dimension(nx_block,ny_block,max_blocks) :: work1
+#ifdef ncdf
+      real (kind=dbl_kind),  dimension(:,:),   allocatable :: work_g1
+      real (kind=real_kind), dimension(:,:),   allocatable :: work_gr
+      real (kind=real_kind), dimension(:,:,:), allocatable :: work_gr3
+      real (kind=dbl_kind),  dimension(nx_block,ny_block,max_blocks) :: &
+         work1
 
       integer (kind=int_kind) :: i,k,ic,n,nn, &
          ncid,status,imtid,jmtid,kmtidi,kmtids,kmtidb, cmtid,timid,varid, &
-         nvertexid,ivertex,kmtida,iflag, fmtid
+         nvertexid,ivertex,kmtida,iflag
       integer (kind=int_kind), dimension(3) :: dimid
       integer (kind=int_kind), dimension(4) :: dimidz
       integer (kind=int_kind), dimension(5) :: dimidcz
       integer (kind=int_kind), dimension(3) :: dimid_nverts
-      integer (kind=int_kind), dimension(6) :: dimidex
+      integer (kind=int_kind), dimension(5) :: dimidex
+!     real (kind=real_kind) :: ltime
       real (kind=dbl_kind)  :: ltime2
       character (char_len) :: title
       character (char_len_long) :: ncfile(max_nstrm)
       real (kind=dbl_kind)  :: secday, rad_to_deg
 
       integer (kind=int_kind) :: ind,boundid
-
-      integer (kind=int_kind) :: lprecision
 
       character (char_len) :: start_time,current_date,current_time
       character (len=8) :: cdate
@@ -120,18 +118,15 @@
 
       character(len=*), parameter :: subname = '(ice_write_hist)'
 
-#ifdef USE_NETCDF
       call icepack_query_parameters(secday_out=secday, rad_to_deg_out=rad_to_deg)
       call icepack_warnings_flush(nu_diag)
       if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
           file=__FILE__, line=__LINE__)
 
-      lprecision = nf90_float
-      if (history_precision == 8) lprecision = nf90_double
-
       if (my_task == master_task) then
 
-        ltime2 = timesecs/secday
+!       ltime=time/int(secday)
+        ltime2=time/int(secday)
 
         call construct_filename(ncfile(ns),'nc',ns)
 
@@ -195,14 +190,11 @@
         if (status /= nf90_noerr) call abort_ice(subname// &
                       'ERROR: defining dim nverts')
 
-        status = nf90_def_dim(ncid,'nf',nfsd_hist,fmtid)
-        if (status /= nf90_noerr) call abort_ice(subname// &
-                      'ERROR: defining dim nf')
-
       !-----------------------------------------------------------------
       ! define coordinate variables
       !-----------------------------------------------------------------
 
+!sgl        status = nf90_def_var(ncid,'time',nf90_float,timid,varid)
         status = nf90_def_var(ncid,'time',nf90_double,timid,varid)
         if (status /= nf90_noerr) call abort_ice(subname// &
                       'ERROR: defining var time')
@@ -212,9 +204,8 @@
                       'ice Error: time long_name')
 
         write(cdate,'(i8.8)') idate0
-        write(title,'(a,a4,a1,a2,a1,a2,a1,i2.2,a1,i2.2,a1,i2.2)') 'days since ', &
-              cdate(1:4),'-',cdate(5:6),'-',cdate(7:8),' ', &
-              hh_init,':',mm_init,':',ss_init
+        write(title,'(a,a,a,a,a,a,a,a)') 'days since ', &
+              cdate(1:4),'-',cdate(5:6),'-',cdate(7:8),' 00:00:00'
         status = nf90_put_att(ncid,varid,'units',title)
         if (status /= nf90_noerr) call abort_ice(subname// &
                       'ERROR: time units')
@@ -248,7 +239,7 @@
         if (hist_avg) then
           dimid(1) = boundid
           dimid(2) = timid
-          status = nf90_def_var(ncid,'time_bounds',lprecision,dimid(1:2),varid)
+          status = nf90_def_var(ncid,'time_bounds',nf90_float,dimid(1:2),varid)
           if (status /= nf90_noerr) call abort_ice(subname// &
                         'ERROR: defining var time_bounds')
           status = nf90_put_att(ncid,varid,'long_name', &
@@ -256,9 +247,8 @@
           if (status /= nf90_noerr) call abort_ice(subname// &
                         'ERROR: time_bounds long_name')
           write(cdate,'(i8.8)') idate0
-          write(title,'(a,a4,a1,a2,a1,a2,a1,i2.2,a1,i2.2,a1,i2.2)') 'days since ', &
-                cdate(1:4),'-',cdate(5:6),'-',cdate(7:8),' ', &
-                hh_init,':',mm_init,':',ss_init
+          write(title,'(a,a,a,a,a,a,a,a)') 'days since ', &
+                cdate(1:4),'-',cdate(5:6),'-',cdate(7:8),' 00:00:00'
           status = nf90_put_att(ncid,varid,'units',title)
           if (status /= nf90_noerr) call abort_ice(subname// &
                         'ERROR: time_bounds units')
@@ -291,7 +281,6 @@
       var_nz(3) = coord_attributes('VGRDs', 'vertical snow levels', '1')
       var_nz(4) = coord_attributes('VGRDb', 'vertical ice-bio levels', '1')
       var_nz(5) = coord_attributes('VGRDa', 'vertical snow-ice-bio levels', '1')
-      var_nz(6) = coord_attributes('NFSD', 'category floe size (center)', 'm')
 
       !-----------------------------------------------------------------
       ! define information for optional time-invariant variables
@@ -350,7 +339,7 @@
         dimid(3) = timid
 
         do i = 1, ncoord
-          status = nf90_def_var(ncid, coord_var(i)%short_name, lprecision, &
+          status = nf90_def_var(ncid, coord_var(i)%short_name, nf90_float, &
                                 dimid(1:2), varid)
           if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: defining short_name for '//coord_var(i)%short_name)
@@ -360,7 +349,12 @@
           status = nf90_put_att(ncid, varid, 'units', coord_var(i)%units)
           if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: defining units for '//coord_var(i)%short_name)
-          call ice_write_hist_fill(ncid,varid,coord_var(i)%short_name,history_precision)
+          status = nf90_put_att(ncid,varid,'missing_value',spval)
+          if (status /= nf90_noerr) call abort_ice(subname// &
+               'ERROR: defining missing_value for '//coord_var(i)%short_name)
+          status = nf90_put_att(ncid,varid,'_FillValue',spval)
+          if (status /= nf90_noerr) call abort_ice(subname// &
+               'ERROR: defining _FillValue for '//coord_var(i)%short_name)
           if (coord_var(i)%short_name == 'ULAT') then
              status = nf90_put_att(ncid,varid,'comment', &
                   'Latitude of NE corner of T grid cell')
@@ -374,18 +368,17 @@
           endif          
         enddo
 
-        ! Extra dimensions (NCAT, NZILYR, NZSLYR, NZBLYR, NZALYR, NFSD)
+        ! Extra dimensions (NCAT, NZILYR, NZSLYR, NZBLYR, NZALYR)       
           dimidex(1)=cmtid
           dimidex(2)=kmtidi
           dimidex(3)=kmtids
           dimidex(4)=kmtidb
           dimidex(5)=kmtida
-          dimidex(6)=fmtid
         
         do i = 1, nvarz
            if (igrdz(i)) then
              status = nf90_def_var(ncid, var_nz(i)%short_name, &
-                                   lprecision, dimidex(i), varid)
+                                   nf90_float, dimidex(i), varid)
              if (status /= nf90_noerr) call abort_ice(subname// &
                 'ERROR: defining short_name for '//var_nz(i)%short_name)
              status = nf90_put_att(ncid,varid,'long_name',var_nz(i)%long_name)
@@ -399,7 +392,7 @@
 
         ! Attributes for tmask, blkmask defined separately, since they have no units
         if (igrd(n_tmask)) then
-           status = nf90_def_var(ncid, 'tmask', lprecision, dimid(1:2), varid)
+           status = nf90_def_var(ncid, 'tmask', nf90_float, dimid(1:2), varid)
            if (status /= nf90_noerr) call abort_ice(subname//'ERROR: defining var tmask')
            status = nf90_put_att(ncid,varid, 'long_name', 'ocean grid mask') 
            if (status /= nf90_noerr) call abort_ice(subname//'ERROR: tmask long_name') 
@@ -407,11 +400,14 @@
            if (status /= nf90_noerr) call abort_ice(subname//'ERROR: tmask units') 
            status = nf90_put_att(ncid,varid,'comment', '0 = land, 1 = ocean')
            if (status /= nf90_noerr) call abort_ice(subname//'ERROR: tmask comment') 
-           call ice_write_hist_fill(ncid,varid,'tmask',history_precision)
+           status = nf90_put_att(ncid,varid,'missing_value',spval)
+           if (status /= nf90_noerr) call abort_ice(subname//'ERROR: defining missing_value for tmask')
+           status = nf90_put_att(ncid,varid,'_FillValue',spval)
+           if (status /= nf90_noerr) call abort_ice(subname//'ERROR: defining _FillValue for tmask')
         endif
 
         if (igrd(n_blkmask)) then
-           status = nf90_def_var(ncid, 'blkmask', lprecision, dimid(1:2), varid)
+           status = nf90_def_var(ncid, 'blkmask', nf90_float, dimid(1:2), varid)
            if (status /= nf90_noerr) call abort_ice(subname//'ERROR: defining var blkmask')
            status = nf90_put_att(ncid,varid, 'long_name', 'ice grid block mask') 
            if (status /= nf90_noerr) call abort_ice(subname//'ERROR: blkmask long_name') 
@@ -419,13 +415,16 @@
            if (status /= nf90_noerr) call abort_ice(subname//'ERROR: blkmask units') 
            status = nf90_put_att(ncid,varid,'comment', 'mytask + iblk/100')
            if (status /= nf90_noerr) call abort_ice(subname//'ERROR: blkmask comment') 
-           call ice_write_hist_fill(ncid,varid,'blkmask',history_precision)
+           status = nf90_put_att(ncid,varid,'missing_value',spval)
+           if (status /= nf90_noerr) call abort_ice(subname//'ERROR: defining missing_value for blkmask')
+           status = nf90_put_att(ncid,varid,'_FillValue',spval)
+           if (status /= nf90_noerr) call abort_ice(subname//'ERROR: defining _FillValue for blkmask')
         endif
 
         do i = 3, nvar      ! note n_tmask=1, n_blkmask=2
           if (igrd(i)) then
              status = nf90_def_var(ncid, var(i)%req%short_name, &
-                                   lprecision, dimid(1:2), varid)
+                                   nf90_float, dimid(1:2), varid)
              if (status /= nf90_noerr) call abort_ice(subname// &
                   'ERROR: defining variable '//var(i)%req%short_name)
              status = nf90_put_att(ncid,varid, 'long_name', var(i)%req%long_name)
@@ -437,7 +436,12 @@
              status = nf90_put_att(ncid, varid, 'coordinates', var(i)%coordinates)
              if (status /= nf90_noerr) call abort_ice(subname// &
                   'ERROR: defining coordinates for '//var(i)%req%short_name)
-             call ice_write_hist_fill(ncid,varid,var(i)%req%short_name,history_precision)
+             status = nf90_put_att(ncid,varid,'missing_value',spval)
+             if (status /= nf90_noerr) call abort_ice(subname// &
+                  'ERROR: defining missing_value for '//var(i)%req%short_name)
+             status = nf90_put_att(ncid,varid,'_FillValue',spval)
+             if (status /= nf90_noerr) call abort_ice(subname// &
+                  'ERROR: defining _FillValue for '//var(i)%req%short_name)
           endif
         enddo
 
@@ -448,7 +452,7 @@
         do i = 1, nvar_verts
           if (f_bounds) then
              status = nf90_def_var(ncid, var_nverts(i)%short_name, &
-                                   lprecision,dimid_nverts, varid)
+                                   nf90_float,dimid_nverts, varid)
              if (status /= nf90_noerr) call abort_ice(subname// &
                   'ERROR: defining variable '//var_nverts(i)%short_name)
              status = nf90_put_att(ncid,varid, 'long_name', var_nverts(i)%long_name)
@@ -457,14 +461,19 @@
              status = nf90_put_att(ncid, varid, 'units', var_nverts(i)%units)
              if (status /= nf90_noerr) call abort_ice(subname// &
                   'ERROR: defining units for '//var_nverts(i)%short_name)
-             call ice_write_hist_fill(ncid,varid,var_nverts(i)%short_name,history_precision)
+             status = nf90_put_att(ncid,varid,'missing_value',spval)
+             if (status /= nf90_noerr) call abort_ice(subname// &
+                  'ERROR: defining missing_value for '//var_nverts(i)%short_name)
+             status = nf90_put_att(ncid,varid,'_FillValue',spval)
+             if (status /= nf90_noerr) call abort_ice(subname// &
+                  'ERROR: defining _FillValue for '//var_nverts(i)%short_name)
           endif
         enddo
 
         do n=1,num_avail_hist_fields_2D
           if (avail_hist_fields(n)%vhistfreq == histfreq(ns) .or. write_ic) then
             status  = nf90_def_var(ncid, avail_hist_fields(n)%vname, &
-                         lprecision, dimid, varid)
+                         nf90_float, dimid, varid)
             if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: defining variable '//avail_hist_fields(n)%vname)
             status = nf90_put_att(ncid,varid,'units', &
@@ -483,7 +492,12 @@
                         avail_hist_fields(n)%vcellmeas)
             if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: defining cell measures for '//avail_hist_fields(n)%vname)
-            call ice_write_hist_fill(ncid,varid,avail_hist_fields(n)%vname,history_precision)
+            status = nf90_put_att(ncid,varid,'missing_value',spval)
+            if (status /= nf90_noerr) call abort_ice(subname// &
+               'ERROR: defining missing_value for '//avail_hist_fields(n)%vname)
+            status = nf90_put_att(ncid,varid,'_FillValue',spval)
+            if (status /= nf90_noerr) call abort_ice(subname// &
+               'ERROR: defining _FillValue for '//avail_hist_fields(n)%vname)
 
       !-----------------------------------------------------------------
       ! Add cell_methods attribute to variables if averaged
@@ -500,8 +514,7 @@
               endif
             endif
 
-            if ((histfreq(ns) == '1' .and. histfreq_n(ns) == 1) &
-                .or..not. hist_avg                              &
+            if (histfreq(ns) == '1' .or. .not. hist_avg         &
                 .or. n==n_divu(ns)      .or. n==n_shear(ns)     &  ! snapshots
                 .or. n==n_sig1(ns)      .or. n==n_sig2(ns)      &
                 .or. n==n_sigP(ns)      .or. n==n_trsig(ns)     &
@@ -523,7 +536,7 @@
         do n = n2D + 1, n3Dccum
           if (avail_hist_fields(n)%vhistfreq == histfreq(ns) .or. write_ic) then
             status  = nf90_def_var(ncid, avail_hist_fields(n)%vname, &
-                         lprecision, dimidz, varid)
+                         nf90_float, dimidz, varid)
             if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: defining variable '//avail_hist_fields(n)%vname)
             status = nf90_put_att(ncid,varid,'units', &
@@ -542,7 +555,12 @@
                         avail_hist_fields(n)%vcellmeas)
             if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: defining cell measures for '//avail_hist_fields(n)%vname)
-            call ice_write_hist_fill(ncid,varid,avail_hist_fields(n)%vname,history_precision)
+            status = nf90_put_att(ncid,varid,'missing_value',spval)
+            if (status /= nf90_noerr) call abort_ice(subname// &
+               'ERROR: defining missing_value for '//avail_hist_fields(n)%vname)
+            status = nf90_put_att(ncid,varid,'_FillValue',spval)
+            if (status /= nf90_noerr) call abort_ice(subname// &
+               'ERROR: defining _FillValue for '//avail_hist_fields(n)%vname)
 
       !-----------------------------------------------------------------
       ! Add cell_methods attribute to variables if averaged
@@ -553,8 +571,7 @@
                  'ERROR: defining cell methods for '//avail_hist_fields(n)%vname)
             endif
 
-            if ((histfreq(ns) == '1' .and. histfreq_n(ns) == 1) &
-                .or..not. hist_avg) then
+            if (histfreq(ns) == '1' .or. .not. hist_avg) then
                status = nf90_put_att(ncid,varid,'time_rep','instantaneous')
             else
                status = nf90_put_att(ncid,varid,'time_rep','averaged')
@@ -570,7 +587,7 @@
         do n = n3Dccum + 1, n3Dzcum
           if (avail_hist_fields(n)%vhistfreq == histfreq(ns) .or. write_ic) then
             status  = nf90_def_var(ncid, avail_hist_fields(n)%vname, &
-                         lprecision, dimidz, varid)
+                         nf90_float, dimidz, varid)
             if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: defining variable '//avail_hist_fields(n)%vname)
             status = nf90_put_att(ncid,varid,'units', &
@@ -589,11 +606,16 @@
                         avail_hist_fields(n)%vcellmeas)
             if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: defining cell measures for '//avail_hist_fields(n)%vname)
-            call ice_write_hist_fill(ncid,varid,avail_hist_fields(n)%vname,history_precision)
+            status = nf90_put_att(ncid,varid,'missing_value',spval)
+            if (status /= nf90_noerr) call abort_ice(subname// &
+               'ERROR: defining missing_value for '//avail_hist_fields(n)%vname)
+            status = nf90_put_att(ncid,varid,'_FillValue',spval)
+            if (status /= nf90_noerr) call abort_ice(subname// &
+               'ERROR: defining _FillValue for '//avail_hist_fields(n)%vname)
 
           endif
         enddo  ! num_avail_hist_fields_3Dz
-
+        
         dimidz(1) = imtid
         dimidz(2) = jmtid
         dimidz(3) = kmtidb
@@ -602,7 +624,7 @@
         do n = n3Dzcum + 1, n3Dbcum
           if (avail_hist_fields(n)%vhistfreq == histfreq(ns) .or. write_ic) then
             status  = nf90_def_var(ncid, avail_hist_fields(n)%vname, &
-                         lprecision, dimidz, varid)
+                         nf90_float, dimidz, varid)
             if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: defining variable '//avail_hist_fields(n)%vname)
             status = nf90_put_att(ncid,varid,'units', &
@@ -621,7 +643,12 @@
                         avail_hist_fields(n)%vcellmeas)
             if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: defining cell measures for '//avail_hist_fields(n)%vname)
-            call ice_write_hist_fill(ncid,varid,avail_hist_fields(n)%vname,history_precision)
+            status = nf90_put_att(ncid,varid,'missing_value',spval)
+            if (status /= nf90_noerr) call abort_ice(subname// &
+               'ERROR: defining missing_value for '//avail_hist_fields(n)%vname)
+            status = nf90_put_att(ncid,varid,'_FillValue',spval)
+            if (status /= nf90_noerr) call abort_ice(subname// &
+               'ERROR: defining _FillValue for '//avail_hist_fields(n)%vname)
 
           endif
         enddo  ! num_avail_hist_fields_3Db
@@ -634,7 +661,7 @@
         do n = n3Dbcum + 1, n3Dacum
           if (avail_hist_fields(n)%vhistfreq == histfreq(ns) .or. write_ic) then
             status  = nf90_def_var(ncid, avail_hist_fields(n)%vname, &
-                         lprecision, dimidz, varid)
+                         nf90_float, dimidz, varid)
             if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: defining variable '//avail_hist_fields(n)%vname)
             status = nf90_put_att(ncid,varid,'units', &
@@ -653,54 +680,27 @@
                         avail_hist_fields(n)%vcellmeas)
             if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: defining cell measures for '//avail_hist_fields(n)%vname)
-            call ice_write_hist_fill(ncid,varid,avail_hist_fields(n)%vname,history_precision)
+            status = nf90_put_att(ncid,varid,'missing_value',spval)
+            if (status /= nf90_noerr) call abort_ice(subname// &
+               'ERROR: defining missing_value for '//avail_hist_fields(n)%vname)
+            status = nf90_put_att(ncid,varid,'_FillValue',spval)
+            if (status /= nf90_noerr) call abort_ice(subname// &
+               'ERROR: defining _FillValue for '//avail_hist_fields(n)%vname)
 
           endif
         enddo  ! num_avail_hist_fields_3Da
-
-        dimidz(1) = imtid
-        dimidz(2) = jmtid
-        dimidz(3) = fmtid
-        dimidz(4) = timid
-
-        do n = n3Dacum + 1, n3Dfcum
-          if (avail_hist_fields(n)%vhistfreq == histfreq(ns) .or. write_ic) then
-            status  = nf90_def_var(ncid, avail_hist_fields(n)%vname, &
-                         lprecision, dimidz, varid)
-            if (status /= nf90_noerr) call abort_ice(subname// &
-               'ERROR: defining variable '//avail_hist_fields(n)%vname)
-            status = nf90_put_att(ncid,varid,'units', &
-                        avail_hist_fields(n)%vunit)
-            if (status /= nf90_noerr) call abort_ice(subname// &
-               'ERROR: defining units for '//avail_hist_fields(n)%vname)
-            status = nf90_put_att(ncid,varid, 'long_name', &
-                        avail_hist_fields(n)%vdesc)
-            if (status /= nf90_noerr) call abort_ice(subname// &
-               'ERROR: defining long_name for '//avail_hist_fields(n)%vname)
-            status = nf90_put_att(ncid,varid,'coordinates', &
-                        avail_hist_fields(n)%vcoord)
-            if (status /= nf90_noerr) call abort_ice(subname// &
-               'ERROR: defining coordinates for '//avail_hist_fields(n)%vname)
-            status = nf90_put_att(ncid,varid,'cell_measures', &
-                        avail_hist_fields(n)%vcellmeas)
-            if (status /= nf90_noerr) call abort_ice(subname// &
-               'ERROR: defining cell measures for '//avail_hist_fields(n)%vname)
-            call ice_write_hist_fill(ncid,varid,avail_hist_fields(n)%vname,history_precision)
-
-          endif
-        enddo  ! num_avail_hist_fields_3Df
-
+      
         dimidcz(1) = imtid
         dimidcz(2) = jmtid
         dimidcz(3) = kmtidi
         dimidcz(4) = cmtid
         dimidcz(5) = timid
 
-        do n = n3Dfcum + 1, n4Dicum
+        do n = n3Dacum + 1, n4Dicum
           if (avail_hist_fields(n)%vhistfreq == histfreq(ns) .or. write_ic) then
             status  = nf90_def_var(ncid, avail_hist_fields(n)%vname, &
-!                             lprecision, dimidcz, varid)
-                             lprecision, dimidcz(1:4), varid) ! ferret
+!                             nf90_float, dimidcz, varid)
+                             nf90_float, dimidcz(1:4), varid) ! ferret    
             if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: defining variable '//avail_hist_fields(n)%vname)
             status = nf90_put_att(ncid,varid,'units', &
@@ -719,7 +719,12 @@
                         avail_hist_fields(n)%vcellmeas)
             if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: defining cell measures for '//avail_hist_fields(n)%vname)
-            call ice_write_hist_fill(ncid,varid,avail_hist_fields(n)%vname,history_precision)
+            status = nf90_put_att(ncid,varid,'missing_value',spval)
+            if (status /= nf90_noerr) call abort_ice(subname// &
+               'ERROR: defining missing_value for '//avail_hist_fields(n)%vname)
+            status = nf90_put_att(ncid,varid,'_FillValue',spval)
+            if (status /= nf90_noerr) call abort_ice(subname// &
+               'ERROR: defining _FillValue for '//avail_hist_fields(n)%vname)
 
       !-----------------------------------------------------------------
       ! Add cell_methods attribute to variables if averaged
@@ -730,8 +735,7 @@
                  'ERROR: defining cell methods for '//avail_hist_fields(n)%vname)
             endif
 
-            if ((histfreq(ns) == '1' .and. histfreq_n(ns) == 1) &
-                .or..not. hist_avg) then
+            if (histfreq(ns) == '1' .or. .not. hist_avg) then
                status = nf90_put_att(ncid,varid,'time_rep','instantaneous')
             else
                status = nf90_put_att(ncid,varid,'time_rep','averaged')
@@ -748,8 +752,8 @@
         do n = n4Dicum + 1, n4Dscum
           if (avail_hist_fields(n)%vhistfreq == histfreq(ns) .or. write_ic) then
             status  = nf90_def_var(ncid, avail_hist_fields(n)%vname, &
-!                             lprecision, dimidcz, varid)
-                             lprecision, dimidcz(1:4), varid) ! ferret
+!                             nf90_float, dimidcz, varid)
+                             nf90_float, dimidcz(1:4), varid) ! ferret    
             if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: defining variable '//avail_hist_fields(n)%vname)
             status = nf90_put_att(ncid,varid,'units', &
@@ -768,7 +772,12 @@
                         avail_hist_fields(n)%vcellmeas)
             if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: defining cell measures for '//avail_hist_fields(n)%vname)
-            call ice_write_hist_fill(ncid,varid,avail_hist_fields(n)%vname,history_precision)
+            status = nf90_put_att(ncid,varid,'missing_value',spval)
+            if (status /= nf90_noerr) call abort_ice(subname// &
+               'ERROR: defining missing_value for '//avail_hist_fields(n)%vname)
+            status = nf90_put_att(ncid,varid,'_FillValue',spval)
+            if (status /= nf90_noerr) call abort_ice(subname// &
+               'ERROR: defining _FillValue for '//avail_hist_fields(n)%vname)
 
       !-----------------------------------------------------------------
       ! Add cell_methods attribute to variables if averaged
@@ -779,63 +788,13 @@
                  'ERROR: defining cell methods for '//avail_hist_fields(n)%vname)
             endif
 
-            if ((histfreq(ns) == '1' .and. histfreq_n(ns) == 1) &
-                .or..not. hist_avg) then
+            if (histfreq(ns) == '1' .or. .not. hist_avg) then
                status = nf90_put_att(ncid,varid,'time_rep','instantaneous')
             else
                status = nf90_put_att(ncid,varid,'time_rep','averaged')
             endif
           endif
         enddo  ! num_avail_hist_fields_4Ds
-
-        dimidcz(1) = imtid
-        dimidcz(2) = jmtid
-        dimidcz(3) = fmtid
-        dimidcz(4) = cmtid
-        dimidcz(5) = timid
-
-        do n = n4Dscum + 1, n4Dfcum
-          if (avail_hist_fields(n)%vhistfreq == histfreq(ns) .or. write_ic) then
-            status  = nf90_def_var(ncid, avail_hist_fields(n)%vname, &
-!                             lprecision, dimidcz, varid)
-                             lprecision, dimidcz(1:4), varid) ! ferret
-            if (status /= nf90_noerr) call abort_ice(subname// &
-               'ERROR: defining variable '//avail_hist_fields(n)%vname)
-            status = nf90_put_att(ncid,varid,'units', &
-                        avail_hist_fields(n)%vunit)
-            if (status /= nf90_noerr) call abort_ice(subname// &
-               'ERROR: defining units for '//avail_hist_fields(n)%vname)
-            status = nf90_put_att(ncid,varid, 'long_name', &
-                        avail_hist_fields(n)%vdesc)
-            if (status /= nf90_noerr) call abort_ice(subname// &
-               'ERROR: defining long_name for '//avail_hist_fields(n)%vname)
-            status = nf90_put_att(ncid,varid,'coordinates', &
-                        avail_hist_fields(n)%vcoord)
-            if (status /= nf90_noerr) call abort_ice(subname// &
-               'ERROR: defining coordinates for '//avail_hist_fields(n)%vname)
-            status = nf90_put_att(ncid,varid,'cell_measures', &
-                        avail_hist_fields(n)%vcellmeas)
-            if (status /= nf90_noerr) call abort_ice(subname// &
-               'ERROR: defining cell measures for '//avail_hist_fields(n)%vname)
-            call ice_write_hist_fill(ncid,varid,avail_hist_fields(n)%vname,history_precision)
-
-      !-----------------------------------------------------------------
-      ! Add cell_methods attribute to variables if averaged
-      !-----------------------------------------------------------------
-            if (hist_avg) then
-                status = nf90_put_att(ncid,varid,'cell_methods','time: mean')
-                if (status /= nf90_noerr) call abort_ice(subname// &
-                 'ERROR: defining cell methods for '//avail_hist_fields(n)%vname)
-            endif
-
-            if ((histfreq(ns) == '1' .and. histfreq_n(ns) == 1) &
-                .or..not. hist_avg) then
-               status = nf90_put_att(ncid,varid,'time_rep','instantaneous')
-            else
-               status = nf90_put_att(ncid,varid,'time_rep','averaged')
-            endif
-          endif
-        enddo  ! num_avail_hist_fields_4Df
 
       !-----------------------------------------------------------------
       ! global attributes
@@ -863,9 +822,9 @@
                       'ERROR: global attribute source')
 
         if (use_leap_years) then
-          write(title,'(a,i3,a)') 'This year has ',dayyr,' days'
+          write(title,'(a,i3,a)') 'This year has ',int(dayyr),' days'
         else
-          write(title,'(a,i3,a)') 'All years have exactly ',dayyr,' days'
+          write(title,'(a,i3,a)') 'All years have exactly ',int(dayyr),' days'
         endif
         status = nf90_put_att(ncid,nf90_global,'comment',title)
         if (status /= nf90_noerr) call abort_ice(subname// &
@@ -876,7 +835,7 @@
         if (status /= nf90_noerr) call abort_ice(subname// &
                       'ERROR: global attribute date1')
 
-        write(title,'(a,i6)') 'seconds elapsed into model date: ',msec
+        write(title,'(a,i6)') 'seconds elapsed into model date: ',sec
         status = nf90_put_att(ncid,nf90_global,'comment3',title)
         if (status /= nf90_noerr) call abort_ice(subname// &
                       'ERROR: global attribute date2')
@@ -916,6 +875,7 @@
         status = nf90_inq_varid(ncid,'time',varid)
         if (status /= nf90_noerr) call abort_ice(subname// &
                       'ERROR: getting time varid')
+!sgl        status = nf90_put_var(ncid,varid,ltime)
         status = nf90_put_var(ncid,varid,ltime2)
         if (status /= nf90_noerr) call abort_ice(subname// &
                       'ERROR: writing time variable')
@@ -940,7 +900,9 @@
 
       if (my_task==master_task) then
          allocate(work_g1(nx_global,ny_global))
+         allocate(work_gr(nx_global,ny_global))
       else
+         allocate(work_gr(1,1))   ! to save memory
          allocate(work_g1(1,1))
       endif
 
@@ -971,16 +933,17 @@
           END SELECT
           
           if (my_task == master_task) then
+             work_gr = work_g1
              status = nf90_inq_varid(ncid, coord_var(i)%short_name, varid)
              if (status /= nf90_noerr) call abort_ice(subname// &
                   'ERROR: getting varid for '//coord_var(i)%short_name)
-             status = nf90_put_var(ncid,varid,work_g1)
+             status = nf90_put_var(ncid,varid,work_gr)
              if (status /= nf90_noerr) call abort_ice(subname// &
                   'ERROR: writing'//coord_var(i)%short_name)
           endif
         enddo
 
-        ! Extra dimensions (NCAT, NFSD, VGRD*)
+        ! Extra dimensions (NCAT, VGRD*)
 
         do i = 1, nvarz
           if (igrdz(i)) then
@@ -990,17 +953,15 @@
              if (status /= nf90_noerr) call abort_ice(subname// &
                   'ERROR: getting varid for '//var_nz(i)%short_name)
              SELECT CASE (var_nz(i)%short_name)
-               CASE ('NCAT')
+               CASE ('NCAT') 
                  status = nf90_put_var(ncid,varid,hin_max(1:ncat_hist))
-               CASE ('NFSD')
-                 status = nf90_put_var(ncid,varid,floe_rad_c(1:nfsd_hist))
                CASE ('VGRDi') ! index - needed for Met Office analysis code
                  status = nf90_put_var(ncid,varid,(/(k, k=1,nzilyr)/))
                CASE ('VGRDs') ! index - needed for Met Office analysis code
                  status = nf90_put_var(ncid,varid,(/(k, k=1,nzslyr)/))
                CASE ('VGRDb')
                  status = nf90_put_var(ncid,varid,(/(k, k=1,nzblyr)/))
-               CASE ('VGRDa')
+               CASE ('VGRDa') 
                  status = nf90_put_var(ncid,varid,(/(k, k=1,nzalyr)/))
              END SELECT
              if (status /= nf90_noerr) call abort_ice(subname// &
@@ -1016,10 +977,11 @@
       if (igrd(n_tmask)) then
       call gather_global(work_g1, hm, master_task, distrb_info)
       if (my_task == master_task) then
+        work_gr=work_g1
         status = nf90_inq_varid(ncid, 'tmask', varid)
         if (status /= nf90_noerr) call abort_ice(subname// &
                       'ERROR: getting varid for tmask')
-        status = nf90_put_var(ncid,varid,work_g1)
+        status = nf90_put_var(ncid,varid,work_gr)
         if (status /= nf90_noerr) call abort_ice(subname// &
                       'ERROR: writing variable tmask')
       endif
@@ -1028,10 +990,11 @@
       if (igrd(n_blkmask)) then
       call gather_global(work_g1, bm, master_task, distrb_info)
       if (my_task == master_task) then
+        work_gr=work_g1
         status = nf90_inq_varid(ncid, 'blkmask', varid)
         if (status /= nf90_noerr) call abort_ice(subname// &
                       'ERROR: getting varid for blkmask')
-        status = nf90_put_var(ncid,varid,work_g1)
+        status = nf90_put_var(ncid,varid,work_gr)
         if (status /= nf90_noerr) call abort_ice(subname// &
                       'ERROR: writing variable blkmask')
       endif
@@ -1064,15 +1027,18 @@
         END SELECT
 
         if (my_task == master_task) then
+          work_gr=work_g1
           status = nf90_inq_varid(ncid, var(i)%req%short_name, varid)
           if (status /= nf90_noerr) call abort_ice(subname// &
                         'ERROR: getting varid for '//var(i)%req%short_name)
-          status = nf90_put_var(ncid,varid,work_g1)
+          status = nf90_put_var(ncid,varid,work_gr)
           if (status /= nf90_noerr) call abort_ice(subname// &
                         'ERROR: writing variable '//var(i)%req%short_name)
         endif
         endif
       enddo
+
+      deallocate(work_gr)
 
       !----------------------------------------------------------------
       ! Write coordinates of grid box vertices
@@ -1080,12 +1046,12 @@
 
       if (f_bounds) then
       if (my_task==master_task) then
-         allocate(work1_3(nverts,nx_global,ny_global))
+         allocate(work_gr3(nverts,nx_global,ny_global))
       else
-         allocate(work1_3(1,1,1))   ! to save memory
+         allocate(work_gr3(1,1,1))   ! to save memory
       endif
 
-      work1_3(:,:,:) = c0
+      work_gr3(:,:,:) = c0
       work1   (:,:,:) = c0
 
       do i = 1, nvar_verts
@@ -1095,25 +1061,25 @@
         do ivertex = 1, nverts 
            work1(:,:,:) = lont_bounds(ivertex,:,:,:)
            call gather_global(work_g1, work1, master_task, distrb_info)
-           if (my_task == master_task) work1_3(ivertex,:,:) = work_g1(:,:)
+           if (my_task == master_task) work_gr3(ivertex,:,:) = work_g1(:,:)
         enddo
         CASE ('latt_bounds')
         do ivertex = 1, nverts
            work1(:,:,:) = latt_bounds(ivertex,:,:,:)
            call gather_global(work_g1, work1, master_task, distrb_info)
-           if (my_task == master_task) work1_3(ivertex,:,:) = work_g1(:,:)
+           if (my_task == master_task) work_gr3(ivertex,:,:) = work_g1(:,:)
         enddo
         CASE ('lonu_bounds')
         do ivertex = 1, nverts
            work1(:,:,:) = lonu_bounds(ivertex,:,:,:)
            call gather_global(work_g1, work1, master_task, distrb_info)
-           if (my_task == master_task) work1_3(ivertex,:,:) = work_g1(:,:)
+           if (my_task == master_task) work_gr3(ivertex,:,:) = work_g1(:,:)
         enddo
         CASE ('latu_bounds')
         do ivertex = 1, nverts
            work1(:,:,:) = latu_bounds(ivertex,:,:,:)
            call gather_global(work_g1, work1, master_task, distrb_info)
-           if (my_task == master_task) work1_3(ivertex,:,:) = work_g1(:,:)
+           if (my_task == master_task) work_gr3(ivertex,:,:) = work_g1(:,:)
         enddo
         END SELECT
 
@@ -1121,18 +1087,24 @@
           status = nf90_inq_varid(ncid, var_nverts(i)%short_name, varid)
           if (status /= nf90_noerr) call abort_ice(subname// &
              'ERROR: getting varid for '//var_nverts(i)%short_name)
-          status = nf90_put_var(ncid,varid,work1_3)
+          status = nf90_put_var(ncid,varid,work_gr3)
           if (status /= nf90_noerr) call abort_ice(subname// &
              'ERROR: writing variable '//var_nverts(i)%short_name)
         endif
       enddo
-      deallocate(work1_3)
+      deallocate(work_gr3)
       endif
 
       !-----------------------------------------------------------------
       ! write variable data
       !-----------------------------------------------------------------
 
+      if (my_task==master_task) then
+         allocate(work_gr(nx_global,ny_global))
+      else
+         allocate(work_gr(1,1))     ! to save memory
+      endif
+      work_gr(:,:) = c0
       work_g1(:,:) = c0
 
       do n=1,num_avail_hist_fields_2D
@@ -1140,18 +1112,19 @@
           call gather_global(work_g1, a2D(:,:,n,:), &
                              master_task, distrb_info)
           if (my_task == master_task) then
+            work_gr(:,:) = work_g1(:,:)
             status  = nf90_inq_varid(ncid,avail_hist_fields(n)%vname,varid)
             if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: getting varid for '//avail_hist_fields(n)%vname)
-            status  = nf90_put_var(ncid,varid,work_g1, &
+            status  = nf90_put_var(ncid,varid,work_gr(:,:), &
                                    count=(/nx_global,ny_global/))
             if (status /= nf90_noerr) call abort_ice(subname// &
                'ERROR: writing variable '//avail_hist_fields(n)%vname)
           endif
-
         endif
       enddo ! num_avail_hist_fields_2D
 
+      work_gr(:,:) = c0
       work_g1(:,:) = c0
 
       do n = n2D + 1, n3Dccum
@@ -1165,12 +1138,13 @@
           do k = 1, ncat_hist
              call gather_global(work_g1, a3Dc(:,:,k,nn,:), &
                                 master_task, distrb_info)
+             work_gr(:,:) = work_g1(:,:)
 
              if (my_task == master_task) then
              status  = nf90_inq_varid(ncid,avail_hist_fields(n)%vname,varid)
              if (status /= nf90_noerr) call abort_ice(subname// &
                 'ERROR: getting varid for '//avail_hist_fields(n)%vname)
-             status  = nf90_put_var(ncid,varid,work_g1, &
+             status  = nf90_put_var(ncid,varid,work_gr(:,:), &
                                     start=(/        1,        1,k/), &
                                     count=(/nx_global,ny_global,1/))
              if (status /= nf90_noerr) call abort_ice(subname// &
@@ -1180,6 +1154,7 @@
         endif
       enddo ! num_avail_hist_fields_3Dc
 
+      work_gr(:,:) = c0
       work_g1(:,:) = c0
 
       do n = n3Dccum+1, n3Dzcum
@@ -1193,9 +1168,10 @@
           do k = 1, nzilyr
              call gather_global(work_g1, a3Dz(:,:,k,nn,:), &
                                 master_task, distrb_info)
+             work_gr(:,:) = work_g1(:,:)
 
              if (my_task == master_task) then
-             status  = nf90_put_var(ncid,varid,work_g1, &
+             status  = nf90_put_var(ncid,varid,work_gr(:,:), &
                                     start=(/        1,        1,k/), &
                                     count=(/nx_global,ny_global,1/))
              if (status /= nf90_noerr) call abort_ice(subname// &
@@ -1205,6 +1181,7 @@
         endif
       enddo ! num_avail_hist_fields_3Dz
 
+      work_gr(:,:) = c0
       work_g1(:,:) = c0
 
      do n = n3Dzcum+1, n3Dbcum
@@ -1218,9 +1195,10 @@
           do k = 1, nzblyr
              call gather_global(work_g1, a3Db(:,:,k,nn,:), &
                                 master_task, distrb_info)
+             work_gr(:,:) = work_g1(:,:)
 
              if (my_task == master_task) then
-             status  = nf90_put_var(ncid,varid,work_g1, &
+             status  = nf90_put_var(ncid,varid,work_gr(:,:), &
                                     start=(/        1,        1,k/), &
                                     count=(/nx_global,ny_global,1/))
              if (status /= nf90_noerr) call abort_ice(subname// &
@@ -1230,6 +1208,7 @@
         endif
       enddo ! num_avail_hist_fields_3Db
 
+      work_gr(:,:) = c0
       work_g1(:,:) = c0
 
       do n = n3Dbcum+1, n3Dacum
@@ -1243,9 +1222,10 @@
           do k = 1, nzalyr
              call gather_global(work_g1, a3Da(:,:,k,nn,:), &
                                 master_task, distrb_info)
+             work_gr(:,:) = work_g1(:,:)
 
              if (my_task == master_task) then
-             status  = nf90_put_var(ncid,varid,work_g1, &
+             status  = nf90_put_var(ncid,varid,work_gr(:,:), &
                                     start=(/        1,        1,k/), &
                                     count=(/nx_global,ny_global,1/))
              if (status /= nf90_noerr) call abort_ice(subname// &
@@ -1255,34 +1235,11 @@
         endif
       enddo ! num_avail_hist_fields_3Da
 
+      work_gr(:,:) = c0
       work_g1(:,:) = c0
 
-      do n = n3Dacum+1, n3Dfcum
+      do n = n3Dacum+1, n4Dicum
         nn = n - n3Dacum
-        if (avail_hist_fields(n)%vhistfreq == histfreq(ns) .or. write_ic) then
-          if (my_task == master_task) then
-            status  = nf90_inq_varid(ncid,avail_hist_fields(n)%vname,varid)
-            if (status /= nf90_noerr) call abort_ice(subname// &
-               'ERROR: getting varid for '//avail_hist_fields(n)%vname)
-          endif
-          do k = 1, nfsd_hist
-             call gather_global(work_g1, a3Df(:,:,k,nn,:), &
-                                master_task, distrb_info)
-             if (my_task == master_task) then
-             status  = nf90_put_var(ncid,varid,work_g1, &
-                                    start=(/        1,        1,k/), &
-                                    count=(/nx_global,ny_global,1/))
-             if (status /= nf90_noerr) call abort_ice(subname// &
-                'ERROR: writing variable '//avail_hist_fields(n)%vname)
-           endif
-           enddo ! k
-        endif
-      enddo ! num_avail_hist_fields_3Df
-
-      work_g1(:,:) = c0
-
-      do n = n3Dfcum+1, n4Dicum
-        nn = n - n3Dfcum
         if (avail_hist_fields(n)%vhistfreq == histfreq(ns) .or. write_ic) then
           if (my_task == master_task) then
             status  = nf90_inq_varid(ncid,avail_hist_fields(n)%vname,varid)
@@ -1293,8 +1250,9 @@
              do k = 1, nzilyr
                 call gather_global(work_g1, a4Di(:,:,k,ic,nn,:), &
                                 master_task, distrb_info)
+                work_gr(:,:) = work_g1(:,:)
                 if (my_task == master_task) then
-                  status  = nf90_put_var(ncid,varid,work_g1, &
+                  status  = nf90_put_var(ncid,varid,work_gr(:,:), &
                                          start=(/        1,        1,k,ic/), &
                                          count=(/nx_global,ny_global,1, 1/))
                   if (status /= nf90_noerr) call abort_ice(subname// &
@@ -1305,6 +1263,7 @@
         endif
       enddo ! num_avail_hist_fields_4Di
 
+      work_gr(:,:) = c0
       work_g1(:,:) = c0
 
       do n = n4Dicum+1, n4Dscum
@@ -1319,8 +1278,9 @@
              do k = 1, nzslyr
                 call gather_global(work_g1, a4Ds(:,:,k,ic,nn,:), &
                                 master_task, distrb_info)
+                work_gr(:,:) = work_g1(:,:)
                 if (my_task == master_task) then
-                  status  = nf90_put_var(ncid,varid,work_g1, &
+                  status  = nf90_put_var(ncid,varid,work_gr(:,:), &
                                          start=(/        1,        1,k,ic/), &
                                          count=(/nx_global,ny_global,1, 1/))
                   if (status /= nf90_noerr) call abort_ice(subname// &
@@ -1331,30 +1291,7 @@
         endif
       enddo ! num_avail_hist_fields_4Ds
 
-      do n = n4Dscum+1, n4Dfcum
-        nn = n - n4Dscum
-        if (avail_hist_fields(n)%vhistfreq == histfreq(ns) .or. write_ic) then
-          if (my_task == master_task) then
-            status  = nf90_inq_varid(ncid,avail_hist_fields(n)%vname,varid)
-            if (status /= nf90_noerr) call abort_ice(subname// &
-               'ERROR: getting varid for '//avail_hist_fields(n)%vname)
-          endif
-          do ic = 1, ncat_hist
-             do k = 1, nfsd_hist
-                call gather_global(work_g1, a4Df(:,:,k,ic,nn,:), &
-                                master_task, distrb_info)
-                if (my_task == master_task) then
-                  status  = nf90_put_var(ncid,varid,work_g1, &
-                                         start=(/        1,        1,k,ic/), &
-                                         count=(/nx_global,ny_global,1, 1/))
-                  if (status /= nf90_noerr) call abort_ice(subname// &
-                     'ERROR: writing variable '//avail_hist_fields(n)%vname)
-                endif
-             enddo ! k
-          enddo ! ic
-        endif
-      enddo ! num_avail_hist_fields_4Df
-
+      deallocate(work_gr)
       deallocate(work_g1)
 
       !-----------------------------------------------------------------
@@ -1368,50 +1305,9 @@
          write(nu_diag,*) ' '
          write(nu_diag,*) 'Finished writing ',trim(ncfile(ns))
       endif
-
-#else
-      call abort_ice(subname//'ERROR: USE_NETCDF cpp not defined', &
-          file=__FILE__, line=__LINE__)
 #endif
 
       end subroutine ice_write_hist
-
-!=======================================================================
-
-      subroutine ice_write_hist_fill(ncid,varid,vname,precision)
-
-      use ice_kinds_mod
-#ifdef USE_NETCDF
-      use netcdf
-#endif
-
-      integer (kind=int_kind), intent(in) :: ncid   ! netcdf file id
-      integer (kind=int_kind), intent(in) :: varid  ! netcdf var id
-      character(len=*),        intent(in) :: vname  ! var name
-      integer (kind=int_kind), intent(in) :: precision   ! precision
-
-      ! local variables
-
-      integer (kind=int_kind) :: status
-      character(len=*), parameter :: subname = '(ice_write_hist_fill)'
-
-      if (precision == 8) then
-         status = nf90_put_att(ncid,varid,'missing_value',spval_dbl)
-      else
-         status = nf90_put_att(ncid,varid,'missing_value',spval)
-      endif
-      if (status /= nf90_noerr) call abort_ice(subname// &
-         'ERROR: defining missing_value for '//trim(vname))
-
-      if (precision == 8) then
-         status = nf90_put_att(ncid,varid,'_FillValue',spval_dbl)
-      else
-         status = nf90_put_att(ncid,varid,'_FillValue',spval)
-      endif
-      if (status /= nf90_noerr) call abort_ice(subname// &
-         'ERROR: defining _FillValue for '//trim(vname))
-
-      end subroutine ice_write_hist_fill
 
 !=======================================================================
 

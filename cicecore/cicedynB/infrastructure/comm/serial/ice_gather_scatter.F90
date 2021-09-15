@@ -36,12 +36,6 @@
 !
 !-----------------------------------------------------------------------
 
-   interface gather_global_ext
-     module procedure gather_global_ext_dbl,  &
-                      gather_global_ext_int,  &
-                      gather_global_ext_log
-   end interface
-
    interface gather_global
      module procedure gather_global_dbl,  &
                       gather_global_real, &
@@ -330,7 +324,7 @@
 
 !***********************************************************************
 
- subroutine gather_global_ext_dbl(ARRAY_G, ARRAY, dst_task, src_dist, spc_val)
+ subroutine gather_global_ext(ARRAY_G, ARRAY, dst_task, src_dist, spc_val)
 
 !  This subroutine gathers a distributed array to a global-sized
 !  array on the processor dst_task, including ghost cells.
@@ -366,14 +360,13 @@
    type (block) :: &
      this_block  ! block info for current block
 
-   character(len=*), parameter :: subname = '(gather_global_ext_dbl)'
+   character(len=*), parameter :: subname = '(gather_global_ext)'
 
    if (present(spc_val)) then
       special_value = spc_val
    else
       special_value = spval_dbl
    endif
-   ARRAY_G = special_value
 
    nx = nx_global + 2*nghost
    ny = ny_global + 2*nghost
@@ -478,329 +471,22 @@
             endif
          endif
 
-      endif  ! src_dist%blockLocation
-
-   end do
-
-!-----------------------------------------------------------------------
-
- end subroutine gather_global_ext_dbl
-
-!***********************************************************************
-
- subroutine gather_global_ext_int(ARRAY_G, ARRAY, dst_task, src_dist, spc_val)
-
-!  This subroutine gathers a distributed array to a global-sized
-!  array on the processor dst_task, including ghost cells.
-
-   integer (int_kind), intent(in) :: &
-     dst_task   ! task to which array should be gathered
-
-   type (distrb), intent(in) :: &
-     src_dist   ! distribution of blocks in the source array
-
-   integer (int_kind), dimension(:,:,:), intent(in) :: &
-     ARRAY      ! array containing horizontal slab of distributed field
-
-   integer (int_kind), optional :: &
-     spc_val
-     
-   integer (int_kind), dimension(:,:), intent(inout) :: &
-     ARRAY_G    ! array containing global horizontal field on dst_task
-
-!-----------------------------------------------------------------------
-!
-!  local variables
-!
-!-----------------------------------------------------------------------
-
-   integer (int_kind) :: &
-     i,j,n          ,&! dummy loop counters
-     nx, ny           ! global dimensions
-
-   integer (int_kind) :: &
-     special_value
-
-   type (block) :: &
-     this_block  ! block info for current block
-
-   character(len=*), parameter :: subname = '(gather_global_ext_int)'
-
-   if (present(spc_val)) then
-      special_value = spc_val
-   else
-      special_value = -9999
-   endif
-   ARRAY_G = special_value
-
-   nx = nx_global + 2*nghost
-   ny = ny_global + 2*nghost
-
-!-----------------------------------------------------------------------
-!
-!  copy local array into block decomposition
-!
-!-----------------------------------------------------------------------
-
-   do n=1,nblocks_tot
-
-      this_block = get_block(n,n)
-
-      !*** copy local blocks
-
-      if (src_dist%blockLocation(n) /= 0) then
+      else !*** fill land blocks with special values
 
          do j=this_block%jlo,this_block%jhi
          do i=this_block%ilo,this_block%ihi
             ARRAY_G(this_block%i_glob(i)+nghost, &
-                    this_block%j_glob(j)+nghost) = &
-                  ARRAY(i,j,src_dist%blockLocalID(n))
+                    this_block%j_glob(j)+nghost) = special_value
          end do
          end do
 
-         ! fill ghost cells
-         if (this_block%jblock == 1) then
-            ! south block
-            do j=1, nghost
-            do i=this_block%ilo,this_block%ihi
-              ARRAY_G(this_block%i_glob(i)+nghost,j) = &
-              ARRAY  (i,j,src_dist%blockLocalID(n))
-            end do
-            end do
-            if (this_block%iblock == 1) then
-               ! southwest corner
-               do j=1, nghost
-               do i=1, nghost
-                 ARRAY_G(i,j) = &
-                 ARRAY  (i,j,src_dist%blockLocalID(n))
-               end do
-               end do
-            endif
-         endif
-         if (this_block%jblock == nblocks_y) then
-            ! north block
-            do j=1, nghost
-            do i=this_block%ilo,this_block%ihi
-              ARRAY_G(this_block%i_glob(i)+nghost, &
-                      ny_global + nghost + j) = &
-              ARRAY  (i,this_block%jhi+nghost-j+1,src_dist%blockLocalID(n))
-            end do
-            end do
-            if (this_block%iblock == nblocks_x) then
-               ! northeast corner
-               do j=1, nghost
-               do i=1, nghost
-                 ARRAY_G(nx-i+1, ny-j+1) = &
-                 ARRAY  (this_block%ihi+nghost-i+1, &
-                         this_block%jhi+nghost-j+1, &
-                         src_dist%blockLocalID(n))
-               end do
-               end do
-            endif
-         endif
-         if (this_block%iblock == 1) then
-            ! west block
-            do j=this_block%jlo,this_block%jhi
-            do i=1, nghost
-              ARRAY_G(i,this_block%j_glob(j)+nghost) = &
-              ARRAY  (i,j,src_dist%blockLocalID(n))
-            end do
-            end do
-            if (this_block%jblock == nblocks_y) then
-               ! northwest corner
-               do j=1, nghost
-               do i=1, nghost
-                 ARRAY_G(i,                   ny-j+1) = &
-                 ARRAY  (i,this_block%jhi+nghost-j+1,src_dist%blockLocalID(n))
-               end do
-               end do
-            endif
-         endif
-         if (this_block%iblock == nblocks_x) then
-            ! east block
-            do j=this_block%jlo,this_block%jhi
-            do i=1, nghost
-              ARRAY_G(nx_global + nghost + i, &
-                      this_block%j_glob(j)+nghost) = &
-              ARRAY  (this_block%ihi+nghost-i+1,j,src_dist%blockLocalID(n))
-            end do
-            end do
-            if (this_block%jblock == 1) then
-               ! southeast corner
-               do j=1, nghost
-               do i=1, nghost
-                 ARRAY_G(                   nx-i+1,j) = &
-                 ARRAY  (this_block%ihi+nghost-i+1,j,src_dist%blockLocalID(n))
-               end do
-               end do
-            endif
-         endif
-
-      endif  ! src_dist%blockLocation
+      endif
 
    end do
 
 !-----------------------------------------------------------------------
 
- end subroutine gather_global_ext_int
-
-!***********************************************************************
-
- subroutine gather_global_ext_log(ARRAY_G, ARRAY, dst_task, src_dist, spc_val)
-
-!  This subroutine gathers a distributed array to a global-sized
-!  array on the processor dst_task, including ghost cells.
-
-   integer (int_kind), intent(in) :: &
-     dst_task   ! task to which array should be gathered
-
-   type (distrb), intent(in) :: &
-     src_dist   ! distribution of blocks in the source array
-
-   logical (log_kind), dimension(:,:,:), intent(in) :: &
-     ARRAY      ! array containing horizontal slab of distributed field
-
-   logical (log_kind), optional :: &
-     spc_val
-     
-   logical (log_kind), dimension(:,:), intent(inout) :: &
-     ARRAY_G    ! array containing global horizontal field on dst_task
-
-!-----------------------------------------------------------------------
-!
-!  local variables
-!
-!-----------------------------------------------------------------------
-
-   integer (int_kind) :: &
-     i,j,n          ,&! dummy loop counters
-     nx, ny           ! global dimensions
-
-   logical (log_kind) :: &
-     special_value
-
-   type (block) :: &
-     this_block  ! block info for current block
-
-   character(len=*), parameter :: subname = '(gather_global_ext_log)'
-
-   if (present(spc_val)) then
-      special_value = spc_val
-   else
-      special_value = .false.
-   endif
-   ARRAY_G = special_value
-
-   nx = nx_global + 2*nghost
-   ny = ny_global + 2*nghost
-
-!-----------------------------------------------------------------------
-!
-!  copy local array into block decomposition
-!
-!-----------------------------------------------------------------------
-
-   do n=1,nblocks_tot
-
-      this_block = get_block(n,n)
-
-      !*** copy local blocks
-
-      if (src_dist%blockLocation(n) /= 0) then
-
-         do j=this_block%jlo,this_block%jhi
-         do i=this_block%ilo,this_block%ihi
-            ARRAY_G(this_block%i_glob(i)+nghost, &
-                    this_block%j_glob(j)+nghost) = &
-                  ARRAY(i,j,src_dist%blockLocalID(n))
-         end do
-         end do
-
-         ! fill ghost cells
-         if (this_block%jblock == 1) then
-            ! south block
-            do j=1, nghost
-            do i=this_block%ilo,this_block%ihi
-              ARRAY_G(this_block%i_glob(i)+nghost,j) = &
-              ARRAY  (i,j,src_dist%blockLocalID(n))
-            end do
-            end do
-            if (this_block%iblock == 1) then
-               ! southwest corner
-               do j=1, nghost
-               do i=1, nghost
-                 ARRAY_G(i,j) = &
-                 ARRAY  (i,j,src_dist%blockLocalID(n))
-               end do
-               end do
-            endif
-         endif
-         if (this_block%jblock == nblocks_y) then
-            ! north block
-            do j=1, nghost
-            do i=this_block%ilo,this_block%ihi
-              ARRAY_G(this_block%i_glob(i)+nghost, &
-                      ny_global + nghost + j) = &
-              ARRAY  (i,this_block%jhi+nghost-j+1,src_dist%blockLocalID(n))
-            end do
-            end do
-            if (this_block%iblock == nblocks_x) then
-               ! northeast corner
-               do j=1, nghost
-               do i=1, nghost
-                 ARRAY_G(nx-i+1, ny-j+1) = &
-                 ARRAY  (this_block%ihi+nghost-i+1, &
-                         this_block%jhi+nghost-j+1, &
-                         src_dist%blockLocalID(n))
-               end do
-               end do
-            endif
-         endif
-         if (this_block%iblock == 1) then
-            ! west block
-            do j=this_block%jlo,this_block%jhi
-            do i=1, nghost
-              ARRAY_G(i,this_block%j_glob(j)+nghost) = &
-              ARRAY  (i,j,src_dist%blockLocalID(n))
-            end do
-            end do
-            if (this_block%jblock == nblocks_y) then
-               ! northwest corner
-               do j=1, nghost
-               do i=1, nghost
-                 ARRAY_G(i,                   ny-j+1) = &
-                 ARRAY  (i,this_block%jhi+nghost-j+1,src_dist%blockLocalID(n))
-               end do
-               end do
-            endif
-         endif
-         if (this_block%iblock == nblocks_x) then
-            ! east block
-            do j=this_block%jlo,this_block%jhi
-            do i=1, nghost
-              ARRAY_G(nx_global + nghost + i, &
-                      this_block%j_glob(j)+nghost) = &
-              ARRAY  (this_block%ihi+nghost-i+1,j,src_dist%blockLocalID(n))
-            end do
-            end do
-            if (this_block%jblock == 1) then
-               ! southeast corner
-               do j=1, nghost
-               do i=1, nghost
-                 ARRAY_G(                   nx-i+1,j) = &
-                 ARRAY  (this_block%ihi+nghost-i+1,j,src_dist%blockLocalID(n))
-               end do
-               end do
-            endif
-         endif
-
-      endif  ! src_dist%blockLocation
-
-   end do
-
-!-----------------------------------------------------------------------
-
- end subroutine gather_global_ext_log
+ end subroutine gather_global_ext
 
 !***********************************************************************
 

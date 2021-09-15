@@ -40,15 +40,11 @@
    type, public :: ice_halo
       integer (int_kind) ::  &
          communicator,     &! communicator to use for update messages
-         numLocalBlocks,   &! number of local blocks, needed for halo fill
          numLocalCopies,   &! num local copies for halo update
          tripoleRows        ! number of rows in tripole buffer
 
       logical (log_kind) ::  &
          tripoleTFlag       ! NS boundary is a tripole T-fold
-
-      integer (int_kind), dimension(:), pointer :: &
-         blockGlobalID      ! list of local block global IDs, needed for halo fill
 
       integer (int_kind), dimension(:,:), pointer :: &
          srcLocalAddr,     &! src addresses for each local copy
@@ -61,8 +57,7 @@
              ice_HaloUpdate,  &
              ice_HaloUpdate_stress, &
              ice_HaloExtrapolate, &
-             ice_HaloDestroy, &
-             primary_grid_lengths_global_ext
+             ice_HaloDestroy
 
    interface ice_HaloUpdate  ! generic interface
       module procedure ice_HaloUpdate2DR8, &
@@ -178,13 +173,6 @@ contains
    southMsgSize = nghost*blockSizeX
    cornerMsgSize = nghost*nghost
    tripoleRows = nghost+1
-
-   !*** store some block info to fill haloes properly
-   call ice_distributionGet(dist, numLocalBlocks=halo%numLocalBlocks)
-   if (halo%numLocalBlocks > 0) then
-      allocate(halo%blockGlobalID(halo%numLocalBlocks))
-      call ice_distributionGet(dist, blockGlobalID=halo%blockGlobalID)
-   endif
 
    if (nsBoundaryType == 'tripole' .or. nsBoundaryType == 'tripoleT') then
       tripoleTFlag = (nsBoundaryType == 'tripoleT')
@@ -593,7 +581,6 @@ contains
       istat,                       &! allocate status flag
       communicator,                &! communicator for message passing
       numLocalCopies,              &! num local copies for halo update
-      numLocalBlocks,              &! num local blocks for halo fill
       tripoleRows                   ! number of rows in tripole buffer
 
    logical (log_kind) :: &
@@ -612,11 +599,9 @@ contains
       tripoleRows    = basehalo%tripoleRows
       tripoleTFlag   = basehalo%tripoleTFlag
       numLocalCopies = basehalo%numLocalCopies
-      numLocalBlocks = basehalo%numLocalBlocks
 
       allocate(halo%srcLocalAddr(3,numLocalCopies), &
                halo%dstLocalAddr(3,numLocalCopies), &
-               halo%blockGlobalID(numLocalBlocks), &
                stat = istat)
 
       if (istat > 0) then
@@ -628,12 +613,9 @@ contains
       halo%tripoleRows    = tripoleRows
       halo%tripoleTFlag   = tripoleTFlag
       halo%numLocalCopies = numLocalCopies
-      halo%numLocalBlocks = numLocalBlocks
 
       halo%srcLocalAddr   = basehalo%srcLocalAddr
       halo%dstLocalAddr   = basehalo%dstLocalAddr
-
-      halo%blockGlobalID  = basehalo%blockGlobalID
 
 !-----------------------------------------------------------------------
 
@@ -677,7 +659,6 @@ contains
 
    integer (int_kind) ::           &
       i,j,nmsg,                  &! dummy loop indices
-      iblk,ilo,ihi,jlo,jhi,      &! block sizes for fill
       nxGlobal,                  &! global domain size in x (tripole)
       iSrc,jSrc,                 &! source addresses for message
       iDst,jDst,                 &! dest   addresses for message
@@ -718,18 +699,13 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do iblk = 1, halo%numLocalBlocks
-      call get_block_parameter(halo%blockGlobalID(iblk), &
-                               ilo=ilo, ihi=ihi,   &
-                               jlo=jlo, jhi=jhi)
-      do j = 1,nghost
-         array(1:nx_block, jlo-j,iblk) = fill
-         array(1:nx_block, jhi+j,iblk) = fill
-      enddo
-      do i = 1,nghost
-         array(ilo-i, 1:ny_block,iblk) = fill
-         array(ihi+i, 1:ny_block,iblk) = fill
-      enddo
+   do j = 1,nghost
+      array(1:nx_block,           j,:) = fill
+      array(1:nx_block,ny_block-j+1,:) = fill
+   enddo
+   do i = 1,nghost
+      array(i,           1:ny_block,:) = fill
+      array(nx_block-i+1,1:ny_block,:) = fill
    enddo
 
 !-----------------------------------------------------------------------
@@ -969,7 +945,6 @@ contains
 
    integer (int_kind) ::           &
       i,j,nmsg,                  &! dummy loop indices
-      iblk,ilo,ihi,jlo,jhi,      &! block sizes for fill
       nxGlobal,                  &! global domain size in x (tripole)
       iSrc,jSrc,                 &! source addresses for message
       iDst,jDst,                 &! dest   addresses for message
@@ -1010,18 +985,13 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do iblk = 1, halo%numLocalBlocks
-      call get_block_parameter(halo%blockGlobalID(iblk), &
-                               ilo=ilo, ihi=ihi,   &
-                               jlo=jlo, jhi=jhi)
-      do j = 1,nghost
-         array(1:nx_block, jlo-j,iblk) = fill
-         array(1:nx_block, jhi+j,iblk) = fill
-      enddo
-      do i = 1,nghost
-         array(ilo-i, 1:ny_block,iblk) = fill
-         array(ihi+i, 1:ny_block,iblk) = fill
-      enddo
+   do j = 1,nghost
+      array(1:nx_block,           j,:) = fill
+      array(1:nx_block,ny_block-j+1,:) = fill
+   enddo
+   do i = 1,nghost
+      array(i,           1:ny_block,:) = fill
+      array(nx_block-i+1,1:ny_block,:) = fill
    enddo
 
 !-----------------------------------------------------------------------
@@ -1261,7 +1231,6 @@ contains
 
    integer (int_kind) ::           &
       i,j,nmsg,                  &! dummy loop indices
-      iblk,ilo,ihi,jlo,jhi,      &! block sizes for fill
       nxGlobal,                  &! global domain size in x (tripole)
       iSrc,jSrc,                 &! source addresses for message
       iDst,jDst,                 &! dest   addresses for message
@@ -1302,18 +1271,13 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do iblk = 1, halo%numLocalBlocks
-      call get_block_parameter(halo%blockGlobalID(iblk), &
-                               ilo=ilo, ihi=ihi,   &
-                               jlo=jlo, jhi=jhi)
-      do j = 1,nghost
-         array(1:nx_block, jlo-j,iblk) = fill
-         array(1:nx_block, jhi+j,iblk) = fill
-      enddo
-      do i = 1,nghost
-         array(ilo-i, 1:ny_block,iblk) = fill
-         array(ihi+i, 1:ny_block,iblk) = fill
-      enddo
+   do j = 1,nghost
+      array(1:nx_block,           j,:) = fill
+      array(1:nx_block,ny_block-j+1,:) = fill
+   enddo
+   do i = 1,nghost
+      array(i,           1:ny_block,:) = fill
+      array(nx_block-i+1,1:ny_block,:) = fill
    enddo
 
 !-----------------------------------------------------------------------
@@ -1553,7 +1517,6 @@ contains
 
    integer (int_kind) ::           &
       i,j,k,nmsg,                &! dummy loop indices
-      iblk,ilo,ihi,jlo,jhi,      &! block sizes for fill
       nxGlobal,                  &! global domain size in x (tripole)
       nz,                        &! size of array in 3rd dimension
       iSrc,jSrc,                 &! source addresses for message
@@ -1601,18 +1564,13 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do iblk = 1, halo%numLocalBlocks
-      call get_block_parameter(halo%blockGlobalID(iblk), &
-                               ilo=ilo, ihi=ihi,   &
-                               jlo=jlo, jhi=jhi)
-      do j = 1,nghost
-         array(1:nx_block, jlo-j,:,iblk) = fill
-         array(1:nx_block, jhi+j,:,iblk) = fill
-      enddo
-      do i = 1,nghost
-         array(ilo-i, 1:ny_block,:,iblk) = fill
-         array(ihi+i, 1:ny_block,:,iblk) = fill
-      enddo
+   do j = 1,nghost
+      array(1:nx_block,           j,:,:) = fill
+      array(1:nx_block,ny_block-j+1,:,:) = fill
+   enddo
+   do i = 1,nghost
+      array(i,           1:ny_block,:,:) = fill
+      array(nx_block-i+1,1:ny_block,:,:) = fill
    enddo
 
 !-----------------------------------------------------------------------
@@ -1871,7 +1829,6 @@ contains
 
    integer (int_kind) ::           &
       i,j,k,nmsg,                &! dummy loop indices
-      iblk,ilo,ihi,jlo,jhi,      &! block sizes for fill
       nxGlobal,                  &! global domain size in x (tripole)
       nz,                        &! size of array in 3rd dimension
       iSrc,jSrc,                 &! source addresses for message
@@ -1919,18 +1876,13 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do iblk = 1, halo%numLocalBlocks
-      call get_block_parameter(halo%blockGlobalID(iblk), &
-                               ilo=ilo, ihi=ihi,   &
-                               jlo=jlo, jhi=jhi)
-      do j = 1,nghost
-         array(1:nx_block, jlo-j,:,iblk) = fill
-         array(1:nx_block, jhi+j,:,iblk) = fill
-      enddo
-      do i = 1,nghost
-         array(ilo-i, 1:ny_block,:,iblk) = fill
-         array(ihi+i, 1:ny_block,:,iblk) = fill
-      enddo
+   do j = 1,nghost
+      array(1:nx_block,           j,:,:) = fill
+      array(1:nx_block,ny_block-j+1,:,:) = fill
+   enddo
+   do i = 1,nghost
+      array(i,           1:ny_block,:,:) = fill
+      array(nx_block-i+1,1:ny_block,:,:) = fill
    enddo
 
 !-----------------------------------------------------------------------
@@ -2189,7 +2141,6 @@ contains
 
    integer (int_kind) ::           &
       i,j,k,nmsg,                &! dummy loop indices
-      iblk,ilo,ihi,jlo,jhi,      &! block sizes for fill
       nxGlobal,                  &! global domain size in x (tripole)
       nz,                        &! size of array in 3rd dimension
       iSrc,jSrc,                 &! source addresses for message
@@ -2237,18 +2188,13 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do iblk = 1, halo%numLocalBlocks
-      call get_block_parameter(halo%blockGlobalID(iblk), &
-                               ilo=ilo, ihi=ihi,   &
-                               jlo=jlo, jhi=jhi)
-      do j = 1,nghost
-         array(1:nx_block, jlo-j,:,iblk) = fill
-         array(1:nx_block, jhi+j,:,iblk) = fill
-      enddo
-      do i = 1,nghost
-         array(ilo-i, 1:ny_block,:,iblk) = fill
-         array(ihi+i, 1:ny_block,:,iblk) = fill
-      enddo
+   do j = 1,nghost
+      array(1:nx_block,           j,:,:) = fill
+      array(1:nx_block,ny_block-j+1,:,:) = fill
+   enddo
+   do i = 1,nghost
+      array(i,           1:ny_block,:,:) = fill
+      array(nx_block-i+1,1:ny_block,:,:) = fill
    enddo
 
 !-----------------------------------------------------------------------
@@ -2507,7 +2453,6 @@ contains
 
    integer (int_kind) ::           &
       i,j,k,l,nmsg,              &! dummy loop indices
-      iblk,ilo,ihi,jlo,jhi,      &! block sizes for fill
       nxGlobal,                  &! global domain size in x (tripole)
       nz, nt,                    &! size of array in 3rd,4th dimensions
       iSrc,jSrc,                 &! source addresses for message
@@ -2556,18 +2501,13 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do iblk = 1, halo%numLocalBlocks
-      call get_block_parameter(halo%blockGlobalID(iblk), &
-                               ilo=ilo, ihi=ihi,   &
-                               jlo=jlo, jhi=jhi)
-      do j = 1,nghost
-         array(1:nx_block, jlo-j,:,:,iblk) = fill
-         array(1:nx_block, jhi+j,:,:,iblk) = fill
-      enddo
-      do i = 1,nghost
-         array(ilo-i, 1:ny_block,:,:,iblk) = fill
-         array(ihi+i, 1:ny_block,:,:,iblk) = fill
-      enddo
+   do j = 1,nghost
+      array(1:nx_block,           j,:,:,:) = fill
+      array(1:nx_block,ny_block-j+1,:,:,:) = fill
+   enddo
+   do i = 1,nghost
+      array(i,           1:ny_block,:,:,:) = fill
+      array(nx_block-i+1,1:ny_block,:,:,:) = fill
    enddo
 
 !-----------------------------------------------------------------------
@@ -2842,7 +2782,6 @@ contains
 
    integer (int_kind) ::           &
       i,j,k,l,nmsg,              &! dummy loop indices
-      iblk,ilo,ihi,jlo,jhi,      &! block sizes for fill
       nxGlobal,                  &! global domain size in x (tripole)
       nz, nt,                    &! size of array in 3rd,4th dimensions
       iSrc,jSrc,                 &! source addresses for message
@@ -2891,18 +2830,13 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do iblk = 1, halo%numLocalBlocks
-      call get_block_parameter(halo%blockGlobalID(iblk), &
-                               ilo=ilo, ihi=ihi,   &
-                               jlo=jlo, jhi=jhi)
-      do j = 1,nghost
-         array(1:nx_block, jlo-j,:,:,iblk) = fill
-         array(1:nx_block, jhi+j,:,:,iblk) = fill
-      enddo
-      do i = 1,nghost
-         array(ilo-i, 1:ny_block,:,:,iblk) = fill
-         array(ihi+i, 1:ny_block,:,:,iblk) = fill
-      enddo
+   do j = 1,nghost
+      array(1:nx_block,           j,:,:,:) = fill
+      array(1:nx_block,ny_block-j+1,:,:,:) = fill
+   enddo
+   do i = 1,nghost
+      array(i,           1:ny_block,:,:,:) = fill
+      array(nx_block-i+1,1:ny_block,:,:,:) = fill
    enddo
 
 !-----------------------------------------------------------------------
@@ -3177,7 +3111,6 @@ contains
 
    integer (int_kind) ::           &
       i,j,k,l,nmsg,              &! dummy loop indices
-      iblk,ilo,ihi,jlo,jhi,      &! block sizes for fill
       nxGlobal,                  &! global domain size in x (tripole)
       nz, nt,                    &! size of array in 3rd,4th dimensions
       iSrc,jSrc,                 &! source addresses for message
@@ -3226,18 +3159,13 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do iblk = 1, halo%numLocalBlocks
-      call get_block_parameter(halo%blockGlobalID(iblk), &
-                               ilo=ilo, ihi=ihi,   &
-                               jlo=jlo, jhi=jhi)
-      do j = 1,nghost
-         array(1:nx_block, jlo-j,:,:,iblk) = fill
-         array(1:nx_block, jhi+j,:,:,iblk) = fill
-      enddo
-      do i = 1,nghost
-         array(ilo-i, 1:ny_block,:,:,iblk) = fill
-         array(ihi+i, 1:ny_block,:,:,iblk) = fill
-      enddo
+   do j = 1,nghost
+      array(1:nx_block,           j,:,:,:) = fill
+      array(1:nx_block,ny_block-j+1,:,:,:) = fill
+   enddo
+   do i = 1,nghost
+      array(i,           1:ny_block,:,:,:) = fill
+      array(nx_block-i+1,1:ny_block,:,:,:) = fill
    enddo
 
 !-----------------------------------------------------------------------
@@ -3506,7 +3434,8 @@ contains
 !  local variables
 
    integer (int_kind) ::           &
-      nmsg,                      &! dummy loop indices
+      i,j,n,nmsg,                &! dummy loop indices
+      ierr,                      &! error or status flag for MPI,alloc
       nxGlobal,                  &! global domain size in x (tripole)
       iSrc,jSrc,                 &! source addresses for message
       iDst,jDst,                 &! dest   addresses for message
@@ -3544,18 +3473,13 @@ contains
 !  the tripole zipper as needed for stresses.  if you zero
 !  it out, all halo values will be wiped out.
 !-----------------------------------------------------------------------
-!   do iblk = 1, halo%numLocalBlocks
-!      call get_block_parameter(halo%blockGlobalID(iblk), &
-!                               ilo=ilo, ihi=ihi,   &
-!                               jlo=jlo, jhi=jhi)
-!      do j = 1,nghost
-!         array(1:nx_block, jlo-j,iblk) = fill
-!         array(1:nx_block, jhi+j,iblk) = fill
-!      enddo
-!      do i = 1,nghost
-!         array(ilo-i, 1:ny_block,iblk) = fill
-!         array(ihi+i, 1:ny_block,iblk) = fill
-!      enddo
+!   do j = 1,nghost
+!      array1(1:nx_block,           j,:) = fill
+!      array1(1:nx_block,ny_block-j+1,:) = fill
+!   enddo
+!   do i = 1,nghost
+!      array1(i,           1:ny_block,:) = fill
+!      array1(nx_block-i+1,1:ny_block,:) = fill
 !   enddo
 
 !-----------------------------------------------------------------------
@@ -4577,146 +4501,10 @@ contains
 
 !-----------------------------------------------------------------------
 
-   deallocate(halo%srcLocalAddr, &
-              halo%dstLocalAddr, &
-              halo%blockGlobalID, stat=istat)
-
-   if (istat > 0) then
-      call abort_ice(subname,' ERROR: deallocating')
-      return
-   endif
+   deallocate(halo%srcLocalAddr, stat=istat)
+   deallocate(halo%dstLocalAddr, stat=istat)
 
 end subroutine ice_HaloDestroy
-
-!***********************************************************************
-
- subroutine primary_grid_lengths_global_ext( &
-   ARRAY_O, ARRAY_I, ew_boundary_type, ns_boundary_type)
-
-!  This subroutine adds ghost cells to global primary grid lengths array
-!  ARRAY_I and outputs result to array ARRAY_O
-
-!  Note duplicate implementation of this subroutine in:
-!  cicecore/cicedynB/infrastructure/comm/mpi/ice_boundary.F90
-
-   use ice_constants, only: c0
-   use ice_domain_size, only: nx_global, ny_global
-
-   real (kind=dbl_kind), dimension(:,:), intent(in) :: &
-      ARRAY_I
-
-   character (*), intent(in) :: &
-      ew_boundary_type, ns_boundary_type
-
-   real (kind=dbl_kind), dimension(:,:), intent(out) :: &
-      ARRAY_O
-
-!-----------------------------------------------------------------------
-!
-!  local variables
-!
-!-----------------------------------------------------------------------
-
-   integer (kind=int_kind) :: &
-      ii, io, ji, jo
-
-   character(len=*), parameter :: &
-      subname = '(primary_grid_lengths_global_ext)'
-
-!-----------------------------------------------------------------------
-!
-!  add ghost cells to global primary grid lengths array
-!
-!-----------------------------------------------------------------------
-
-   if (trim(ns_boundary_type) == 'tripole' .or. &
-       trim(ns_boundary_type) == 'tripoleT') then
-      call abort_ice(subname//' ERROR: '//ns_boundary_type &
-         //' boundary type not implemented for configuration')
-   endif
-
-   do jo = 1,ny_global+2*nghost
-      ji = -nghost + jo
-
-      !*** Southern ghost cells
-
-      if (ji < 1) then
-         select case (trim(ns_boundary_type))
-         case ('cyclic')
-            ji = ji + ny_global
-         case ('open')
-            ji = nghost - jo + 1
-         case ('closed')
-            ji = 0
-         case default
-            call abort_ice( &
-               subname//' ERROR: unknown north-south boundary type')
-         end select
-      endif
-
-      !*** Northern ghost cells
-
-      if (ji > ny_global) then
-         select case (trim(ns_boundary_type))
-         case ('cyclic')
-            ji = ji - ny_global
-         case ('open')
-            ji = 2 * ny_global - ji + 1
-         case ('closed')
-            ji = 0
-         case default
-            call abort_ice( &
-               subname//' ERROR: unknown north-south boundary type')
-         end select
-      endif
-
-      do io = 1,nx_global+2*nghost
-         ii = -nghost + io
-
-         !*** Western ghost cells
-
-         if (ii < 1) then
-            select case (trim(ew_boundary_type))
-            case ('cyclic')
-               ii = ii + nx_global
-            case ('open')
-               ii = nghost - io + 1
-            case ('closed')
-               ii = 0
-            case default
-               call abort_ice( &
-                  subname//' ERROR: unknown east-west boundary type')
-            end select
-         endif
-
-         !*** Eastern ghost cells
-
-         if (ii > nx_global) then
-            select case (trim(ew_boundary_type))
-            case ('cyclic')
-               ii = ii - nx_global
-            case ('open')
-               ii = 2 * nx_global - ii + 1
-            case ('closed')
-               ii = 0
-            case default
-               call abort_ice( &
-                  subname//' ERROR: unknown east-west boundary type')
-            end select
-         endif
-
-         if (ii == 0 .or. ji == 0) then
-            ARRAY_O(io, jo) = c0
-         else
-            ARRAY_O(io, jo) = ARRAY_I(ii, ji)
-         endif
-
-      enddo
-   enddo
-
-!-----------------------------------------------------------------------
-
- end subroutine primary_grid_lengths_global_ext
 
 !***********************************************************************
 

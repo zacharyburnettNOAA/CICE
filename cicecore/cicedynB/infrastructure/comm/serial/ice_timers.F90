@@ -45,16 +45,12 @@
       timer_ponds,            &! melt ponds
       timer_ridge,            &! ridging
       timer_catconv,          &! category conversions
-      timer_fsd,              &! floe size distribution
       timer_couple,           &! coupling
       timer_readwrite,        &! read/write
       timer_diags,            &! diagnostics/history
       timer_hist,             &! diagnostics/history
       timer_bound,            &! boundary updates
-      timer_bgc,              &! biogeochemistry
-      timer_forcing,          &! forcing
-      timer_evp_1d,           &! timer only loop
-      timer_evp_2d             ! timer including conversion 1d/2d
+      timer_bgc                ! biogeochemistry
 !      timer_tmp               ! for temporary timings
 
 !-----------------------------------------------------------------------
@@ -187,16 +183,12 @@
 !   call get_ice_timer(timer_ponds,    'Meltponds',nblocks,distrb_info%nprocs)
    call get_ice_timer(timer_ridge,    'Ridging',  nblocks,distrb_info%nprocs)
 !   call get_ice_timer(timer_catconv,  'Cat Conv', nblocks,distrb_info%nprocs)
-   call get_ice_timer(timer_fsd,      'Floe size',nblocks,distrb_info%nprocs)
    call get_ice_timer(timer_couple,   'Coupling', nblocks,distrb_info%nprocs)
    call get_ice_timer(timer_readwrite,'ReadWrite',nblocks,distrb_info%nprocs)
    call get_ice_timer(timer_diags,    'Diags    ',nblocks,distrb_info%nprocs)
    call get_ice_timer(timer_hist,     'History  ',nblocks,distrb_info%nprocs)
    call get_ice_timer(timer_bound,    'Bound',    nblocks,distrb_info%nprocs)
    call get_ice_timer(timer_bgc,      'BGC',      nblocks,distrb_info%nprocs)
-   call get_ice_timer(timer_forcing,  'Forcing',  nblocks,distrb_info%nprocs)
-   call get_ice_timer(timer_evp_1d,   '1d-evp',   nblocks,distrb_info%nprocs)
-   call get_ice_timer(timer_evp_2d,   '2d-evp',   nblocks,distrb_info%nprocs)
 !   call get_ice_timer(timer_tmp,      '         ',nblocks,distrb_info%nprocs)
 
 !-----------------------------------------------------------------------
